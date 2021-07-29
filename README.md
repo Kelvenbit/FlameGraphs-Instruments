@@ -44,7 +44,7 @@ $ git clone git@github.com:Kelvenbit/FlameGraphs-Instruments.git
 1. 运行Instruments并选择`Time Profiler` 或者`CPU Profiler`
 2. 选中堆栈
 3. 菜单 `Edit > Deep copy ⇧⌘C` 复制完整堆栈到剪切板 
-4. 进入目录     `cd FlameGraph-SVG`
+4. 进入目录     `cd FlameGraphs-Instruments`
 5. 执行 `swift run FlameGraph output.svg` 或者 `swift run FlameGraph -f intput.csv output.svg`
 
 
@@ -52,4 +52,4 @@ $ git clone git@github.com:Kelvenbit/FlameGraphs-Instruments.git
 
 ## 许可证 
 
-FlameGraph-SVG 使用 MIT 许可证，详情见 LICENSE 文件。
+FlameGraphs-Instruments 使用 MIT 许可证，详情见 LICENSE 文件。
