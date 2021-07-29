@@ -1,0 +1,1115 @@
+<?xml version="1.0" standalone="no"?>
+<!DOCTYPE svg PUBLIC "-//W3C//DTD SVG 1.1//EN" "http://www.w3.org/Graphics/SVG/1.1/DTD/svg11.dtd">
+<svg version="1.1" width="1200" height="626" onload="init(evt)" viewBox="0 0 1200 626" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink"><defs>
+    <linearGradient id="background" y1="0" y2="1" x1="0" x2="0" >
+        <stop stop-color="#eeeeee" offset="5%" />
+        <stop stop-color="#eeeeb0" offset="95%" />
+    </linearGradient>
+</defs>
+<style type="text/css">
+    .func_g:hover { stroke:black; stroke-width:0.5; cursor:pointer; }
+    text { font-family:Verdana; font-size:12px; fill:#000000; }
+    #search, #ignorecase { opacity:0.1; cursor:pointer; }
+    #search:hover, #search.show, #ignorecase:hover, #ignorecase.show { opacity:1; }
+    #subtitle { text-anchor:middle; font-color:#a0a0a0; }
+    #title { text-anchor:middle; font-size:17px}
+    #unzoom { cursor:pointer; }
+    #frames > *:hover { stroke:black; stroke-width:0.5; cursor:pointer; }
+    .hide { display:none; }
+    .parent { opacity:0.5; }
+</style>
+<script type="text/ecmascript">
+<![CDATA[
+    "use strict";
+    var details, searchbtn, unzoombtn, matchedtxt, svg, searching, currentSearchTerm, ignorecase, ignorecaseBtn;
+    function init(evt) {
+        details = document.getElementById("details").firstChild;
+        searchbtn = document.getElementById("search");
+        ignorecaseBtn = document.getElementById("ignorecase");
+        unzoombtn = document.getElementById("unzoom");
+        matchedtxt = document.getElementById("matched");
+        svg = document.getElementsByTagName("svg")[0];
+        searching = 0;
+        currentSearchTerm = null;
+    }
+
+    // mouse-over for info
+    function s(info) { details.nodeValue = "symbol: " + info; }
+    function c() { details.nodeValue = ' '; }
+
+    window.addEventListener("click", function(e) {
+        var target = find_group(e.target);
+        if (target) {
+            if (target.nodeName == "a") {
+                if (e.ctrlKey === false) return;
+                e.preventDefault();
+            }
+            if (target.classList.contains("parent")) unzoom();
+            zoom(target);
+        }
+        else if (e.target.id == "unzoom") unzoom();
+        else if (e.target.id == "search") search_prompt();
+        else if (e.target.id == "ignorecase") toggle_ignorecase();
+    }, false)
+
+    // ctrl-F for search
+    window.addEventListener("keydown",function (e) {
+        if (e.keyCode === 114 || (e.ctrlKey && e.keyCode === 70)) {
+            e.preventDefault();
+            search_prompt();
+        }
+    }, false)
+
+    // ctrl-I to toggle case-sensitive search
+    window.addEventListener("keydown",function (e) {
+        if (e.ctrlKey && e.keyCode === 73) {
+            e.preventDefault();
+            toggle_ignorecase();
+        }
+    }, false)
+
+    // functions
+    function find_child(node, selector) {
+        var children = node.querySelectorAll(selector);
+        if (children.length) return children[0];
+        return;
+    }
+    function find_group(node) {
+        var parent = node.parentElement;
+        if (!parent) return;
+        if (parent.id == "frames") return node;
+        return find_group(parent);
+    }
+    function orig_save(e, attr, val) {
+        if (e.attributes["_orig_" + attr] != undefined) return;
+        if (e.attributes[attr] == undefined) return;
+        if (val == undefined) val = e.attributes[attr].value;
+        e.setAttribute("_orig_" + attr, val);
+    }
+    function orig_load(e, attr) {
+        if (e.attributes["_orig_"+attr] == undefined) return;
+        e.attributes[attr].value = e.attributes["_orig_" + attr].value;
+        e.removeAttribute("_orig_"+attr);
+    }
+    function g_to_text(e) {
+        var text = find_child(e, "title").firstChild.nodeValue;
+        return (text)
+    }
+    function g_to_func(e) {
+        var func = g_to_text(e);
+        // if there's any manipulation we want to do to the function
+        // name before it's searched, do it here before returning.
+        return (func);
+    }
+    
+    function update_text(e) {
+            var r = find_child(e, "rect");
+            var t = find_child(e, "text");
+            var w = parseFloat(r.attributes["width"].value) -3;
+            var txt = find_child(e, "title").textContent.replace(/\([^(]*\)/,"");
+            t.attributes["x"].value = parseFloat(r.attributes["x"].value) +3;
+            
+            // Smaller than this size won't fit anything
+            if (w < 2*12*0.59) {
+                t.textContent = "";
+                return;
+            }
+            
+            t.textContent = txt;
+            // Fit in full text width
+            if (/^ *$/.test(txt) || t.getSubStringLength(0, txt.length) < w)
+                return;
+            
+            for (var x=txt.length-2; x>0; x--) {
+                if (t.getSubStringLength(0, x+2) <= w) {
+                    t.textContent = txt.substring(0,x) + "..";
+                    return;
+                }
+            }
+            t.textContent = "";
+        }
+        // zoom
+        function zoom_reset(e) {
+            if (e.attributes != undefined) {
+                orig_load(e, "x");
+                orig_load(e, "width");
+            }
+            if (e.childNodes == undefined) return;
+            for(var i=0, c=e.childNodes; i<c.length; i++) {
+                zoom_reset(c[i]);
+            }
+        }
+        function zoom_child(e, x, ratio) {
+            if (e.attributes != undefined) {
+                if (e.attributes["x"] != undefined) {
+                    orig_save(e, "x");
+                    e.attributes["x"].value = (parseFloat(e.attributes["x"].value) - x - 10) * ratio + 10;
+                    if(e.tagName == "text") e.attributes["x"].value = find_child(e.parentNode, "rect", "x") + 3;
+                }
+                if (e.attributes["width"] != undefined) {
+                    orig_save(e, "width");
+                    e.attributes["width"].value = parseFloat(e.attributes["width"].value) * ratio;
+                }
+            }
+            
+            if (e.childNodes == undefined) return;
+            for(var i=0, c=e.childNodes; i<c.length; i++) {
+                zoom_child(c[i], x-10, ratio);
+            }
+        }
+        function zoom_parent(e) {
+            if (e.attributes) {
+                if (e.attributes["x"] != undefined) {
+                    orig_save(e, "x");
+                    e.attributes["x"].value = 10;
+                }
+                if (e.attributes["width"] != undefined) {
+                    orig_save(e, "width");
+                    e.attributes["width"].value = parseInt(svg.width.baseVal.value) - (10*2);
+                }
+            }
+            if (e.childNodes == undefined) return;
+            for(var i=0, c=e.childNodes; i<c.length; i++) {
+                zoom_parent(c[i]);
+            }
+        }
+        function zoom(node) {
+            var attr = find_child(node, "rect").attributes;
+            var width = parseFloat(attr["width"].value);
+            var xmin = parseFloat(attr["x"].value);
+            var xmax = parseFloat(xmin + width);
+            var ymin = parseFloat(attr["y"].value);
+            var ratio = (svg.width.baseVal.value - 2*10) / width;
+            
+            // XXX: Workaround for JavaScript float issues (fix me)
+            var fudge = 0.0001;
+            
+            var unzoombtn = document.getElementById("unzoom");
+            unzoombtn.style["opacity"] = "1.0";
+            
+            var el = document.getElementsByTagName("g");
+            for(var i=0;i<el.length;i++){
+                var e = el[i];
+                var a = find_child(e, "rect").attributes;
+                var ex = parseFloat(a["x"].value);
+                var ew = parseFloat(a["width"].value);
+                // Is it an ancestor
+                if (0 == 0) {
+                    var upstack = parseFloat(a["y"].value) > ymin;
+                } else {
+                    var upstack = parseFloat(a["y"].value) < ymin;
+                }
+                if (upstack) {
+                    // Direct ancestor
+                    if (ex <= xmin && (ex+ew+fudge) >= xmax) {
+                        e.style["opacity"] = "0.5";
+                        zoom_parent(e);
+                        e.onclick = function(e){unzoom(); zoom(this);};
+                        update_text(e);
+                    }
+                    // not in current path
+                    else
+                        e.style["display"] = "none";
+                }
+                // Children maybe
+                else {
+                    // no common path
+                    if (ex < xmin || ex + fudge >= xmax) {
+                        e.style["display"] = "none";
+                    }
+                    else {
+                        zoom_child(e, xmin, ratio);
+                        e.onclick = function(e){zoom(this);};
+                        update_text(e);
+                    }
+                }
+            }
+        }
+        function unzoom() {
+            var unzoombtn = document.getElementById("unzoom");
+            unzoombtn.style["opacity"] = "0.0";
+            
+            var el = document.getElementsByTagName("g");
+            for(var i=0;i<el.length;i++) {
+                el[i].style["display"] = "block";
+                el[i].style["opacity"] = "1";
+                zoom_reset(el[i]);
+                update_text(el[i]);
+            }
+        }
+
+]]>
+</script> 
+<rect  height="774.0" width="1200.0" ry="2" x="0.0" y="0.0" fill="url(#background)" rx="2"/> 
+<text  font-family="Verdana" y="24.0" font-size="12" x="600.00" id="title" fill="rgb(0,0,0)" text-anchor="middle">Flame Chart</text> 
+<text  font-family="Verdana" y="757.0" font-size="12" x="10.00" id="details" fill="rgb(0,0,0)" text-anchor=""> </text> 
+<text  font-family="Verdana" y="24.0" onclick="unzoom()" font-size="12" style="opacity:0.0;cursor:pointer" x="10.00" id="unzoom" fill="rgb(0,0,0)" text-anchor="">Reset Zoom</text> 
+<text  fill="rgb(0,0,0)" onmouseout="searchout()" y="24.0" font-family="Verdana" id="search" font-size="12" text-anchor="" onclick="search_prompt()" style="opacity:0.1;cursor:pointer" x="1090.00" onmouseover="searchover()">Search</text> 
+<text  font-family="Verdana" y="24.0" font-size="12" x="1174.00" id="ignorecase" fill="rgb(0,0,0)" text-anchor="">ic</text> 
+<text  font-family="Verdana" y="757.0" font-size="12" x="1090.00" id="matched" fill="rgb(0,0,0)" text-anchor=""> </text> 
+<g  onclick="zoom(this)" onmouseover="s('-[UIApplication _handleDelegateCallbacksWithOptions:isSuspended:restoreState:] (7.80%)')" class="func_g" onmouseout="c()"><title >-[UIApplication _handleDelegateCallbacksWithOptions:isSuspended:restoreState:] (7.80%)</title> 
+<rect  height="15.0" x="10.0" y="725.0" fill="rgb(239,207,27)" rx="2" width="1180.0" ry="2"/> 
+<text  font-family="Verdana" y="735.50" x="13.00" font-size="12">-[UIApplication _handleDelegateCallbacksWithOptions:isSuspended:restoreState:]</text> 
+</g> 
+<g  class="func_g" onmouseout="c()" onmouseover="s('-[AppDelegate application:didFinishLaunchingWithOptions:] (7.80%)')" onclick="zoom(this)"><title >-[AppDelegate application:didFinishLaunchingWithOptions:] (7.80%)</title> 
+<rect  fill="rgb(205,60,24)" x="10.0" height="15.0" ry="2" rx="2" width="1180.0" y="709.0"/> 
+<text  font-size="12" x="13.00" y="719.50" font-family="Verdana">-[AppDelegate application:didFinishLaunchingWithOptions:]</text> 
+</g> 
+<g  onmouseout="c()" onclick="zoom(this)" class="func_g" onmouseover="s('-[UITabBarController initWithNibName:bundle:] (6.00%)')"><title >-[UITabBarController initWithNibName:bundle:] (6.00%)</title> 
+<rect  width="907.69226" fill="rgb(242,196,2)" rx="2" y="693.0" ry="2" height="15.0" x="10.0"/> 
+<text  y="703.50" x="13.00" font-family="Verdana" font-size="12">-[UITabBarController initWithNibName:bundle:]</text> 
+</g> 
+<g  onmouseout="c()" class="func_g" onclick="zoom(this)" onmouseover="s('-[WMFAppViewController viewDidLoad] (5.80%)')"><title >-[WMFAppViewController viewDidLoad] (5.80%)</title> 
+<rect  fill="rgb(215,217,9)" rx="2" y="677.0" height="15.0" ry="2" width="877.43585" x="10.0"/> 
+<text  font-size="12" x="13.00" font-family="Verdana" y="687.50">-[WMFAppViewController viewDidLoad]</text> 
+</g> 
+<g  onmouseover="s('-[WMFAppViewController setupReadingListsHelpers] (4.70%)')" onclick="zoom(this)" class="func_g" onmouseout="c()"><title >-[WMFAppViewController setupReadingListsHelpers] (4.70%)</title> 
+<rect  fill="rgb(222,118,22)" height="15.0" y="661.0" width="711.0255" rx="2" x="10.0" ry="2"/> 
+<text  font-family="Verdana" y="671.50" x="13.00" font-size="12">-[WMFAppViewController setupReadingListsHelpers]</text> 
+</g> 
+<g  class="func_g" onmouseout="c()" onmouseover="s('-[WMFAppViewController dataStore] (4.70%)')" onclick="zoom(this)"><title >-[WMFAppViewController dataStore] (4.70%)</title> 
+<rect  rx="2" ry="2" width="711.0255" y="645.0" fill="rgb(217,28,45)" x="10.0" height="15.0"/> 
+<text  x="13.00" font-family="Verdana" y="655.50" font-size="12">-[WMFAppViewController dataStore]</text> 
+</g> 
+<g  onclick="zoom(this)" onmouseout="c()" class="func_g" onmouseover="s('+[SessionSingleton sharedInstance] (4.70%)')"><title >+[SessionSingleton sharedInstance] (4.70%)</title> 
+<rect  width="711.0255" rx="2" y="629.0" fill="rgb(249,120,28)" height="15.0" ry="2" x="10.0"/> 
+<text  x="13.00" font-family="Verdana" y="639.50" font-size="12">+[SessionSingleton sharedInstance]</text> 
+</g> 
+<g  onclick="zoom(this)" class="func_g" onmouseover="s('_dispatch_once_callout (4.70%)')" onmouseout="c()"><title >_dispatch_once_callout (4.70%)</title> 
+<rect  fill="rgb(239,135,47)" x="10.0" y="613.0" width="711.0255" height="15.0" rx="2" ry="2"/> 
+<text  font-family="Verdana" font-size="12" x="13.00" y="623.50">_dispatch_once_callout</text> 
+</g> 
+<g  onclick="zoom(this)" onmouseout="c()" class="func_g" onmouseover="s('_dispatch_client_callout (4.70%)')"><title >_dispatch_client_callout (4.70%)</title> 
+<rect  rx="2" y="597.0" ry="2" x="10.0" width="711.0255" height="15.0" fill="rgb(233,133,38)"/> 
+<text  y="607.50" font-family="Verdana" font-size="12" x="13.00">_dispatch_client_callout</text> 
+</g> 
+<g  onclick="zoom(this)" class="func_g" onmouseover="s('__34+[SessionSingleton sharedInstance]_block_invoke (4.70%)')" onmouseout="c()"><title >__34+[SessionSingleton sharedInstance]_block_invoke (4.70%)</title> 
+<rect  y="581.0" rx="2" width="711.0255" fill="rgb(254,53,26)" height="15.0" ry="2" x="10.0"/> 
+<text  y="591.50" x="13.00" font-size="12" font-family="Verdana">__34+[SessionSingleton sharedInstance]_block_invoke</text> 
+</g> 
+<g  onmouseout="c()" onclick="zoom(this)" class="func_g" onmouseover="s('-[SessionSingleton init] (4.70%)')"><title >-[SessionSingleton init] (4.70%)</title> 
+<rect  ry="2" fill="rgb(207,225,35)" x="10.0" height="15.0" y="565.0" rx="2" width="711.0255"/> 
+<text  x="13.00" y="575.50" font-family="Verdana" font-size="12">-[SessionSingleton init]</text> 
+</g> 
+<g  class="func_g" onmouseover="s('-[MWKDataStore init] (4.50%)')" onmouseout="c()" onclick="zoom(this)"><title >-[MWKDataStore init] (4.50%)</title> 
+<rect  ry="2" fill="rgb(236,34,5)" y="549.0" x="10.0" width="680.7691" rx="2" height="15.0"/> 
+<text  font-family="Verdana" y="559.50" x="13.00" font-size="12">-[MWKDataStore init]</text> 
+</g> 
+<g  onclick="zoom(this)" class="func_g" onmouseout="c()" onmouseover="s('-[MWKDataStore initWithContainerURL:] (4.50%)')"><title >-[MWKDataStore initWithContainerURL:] (4.50%)</title> 
+<rect  y="533.0" ry="2" rx="2" width="680.7691" height="15.0" fill="rgb(235,143,29)" x="10.0"/> 
+<text  y="543.50" font-family="Verdana" x="13.00" font-size="12">-[MWKDataStore initWithContainerURL:]</text> 
+</g> 
+<g  onmouseover="s('-[MWKDataStore setupCoreDataStackWithContainerURL:] (2.10%)')" class="func_g" onmouseout="c()" onclick="zoom(this)"><title >-[MWKDataStore setupCoreDataStackWithContainerURL:] (2.10%)</title> 
+<rect  width="317.69226" ry="2" x="10.0" rx="2" height="15.0" y="517.0" fill="rgb(241,39,14)"/> 
+<text  y="527.50" font-family="Verdana" font-size="12" x="13.00">-[MWKDataStore setupCoreDataStackWithConta..</text> 
+</g> 
+<g  class="func_g" onclick="zoom(this)" onmouseout="c()" onmouseover="s('-[NSPersistentStoreCoordinator addPersistentStoreWithType:configuration:URL:options:error:] (1.70%)')"><title >-[NSPersistentStoreCoordinator addPersistentStoreWithType:configuration:URL:options:error:] (1.70%)</title> 
+<rect  ry="2" x="10.0" fill="rgb(212,200,32)" width="257.17947" height="15.0" y="501.0" rx="2"/> 
+<text  x="13.00" y="511.50" font-size="12" font-family="Verdana">-[NSPersistentStoreCoordinator add..</text> 
+</g> 
+<g  onmouseout="c()" onclick="zoom(this)" class="func_g" onmouseover="s('_perform (1.70%)')"><title >_perform (1.70%)</title> 
+<rect  height="15.0" ry="2" width="257.17947" x="10.0" rx="2" fill="rgb(237,143,54)" y="485.0"/> 
+<text  x="13.00" y="495.50" font-size="12" font-family="Verdana">_perform</text> 
+</g> 
+<g  onclick="zoom(this)" class="func_g" onmouseover="s('_dispatch_lane_barrier_sync_invoke_and_complete (1.70%)')" onmouseout="c()"><title >_dispatch_lane_barrier_sync_invoke_and_complete (1.70%)</title> 
+<rect  height="15.0" x="10.0" width="257.17947" fill="rgb(239,40,4)" y="469.0" rx="2" ry="2"/> 
+<text  y="479.50" x="13.00" font-family="Verdana" font-size="12">_dispatch_lane_barrier_sync_invoke..</text> 
+</g> 
+<g  class="func_g" onmouseover="s('_dispatch_client_callout (1.70%)')" onclick="zoom(this)" onmouseout="c()"><title >_dispatch_client_callout (1.70%)</title> 
+<rect  fill="rgb(241,79,45)" height="15.0" x="10.0" width="257.17947" ry="2" y="453.0" rx="2"/> 
+<text  x="13.00" font-family="Verdana" y="463.50" font-size="12">_dispatch_client_callout</text> 
+</g> 
+<g  onmouseout="c()" onclick="zoom(this)" onmouseover="s('gutsOfBlockToNSPersistentStoreCoordinatorPerform (1.70%)')" class="func_g"><title >gutsOfBlockToNSPersistentStoreCoordinatorPerform (1.70%)</title> 
+<rect  x="10.0" rx="2" y="437.0" ry="2" width="257.17947" height="15.0" fill="rgb(251,209,24)"/> 
+<text  x="13.00" font-family="Verdana" font-size="12" y="447.50">gutsOfBlockToNSPersistentStoreCoor..</text> 
+</g> 
+<g  onmouseover="s('__91-[NSPersistentStoreCoordinator addPersistentStoreWithType:configuration:URL:options:error:]_block_invoke (1.70%)')" onclick="zoom(this)" class="func_g" onmouseout="c()"><title >__91-[NSPersistentStoreCoordinator addPersistentStoreWithType:configuration:URL:options:error:]_block_invoke (1.70%)</title> 
+<rect  fill="rgb(247,146,48)" height="15.0" y="421.0" width="257.17947" rx="2" ry="2" x="10.0"/> 
+<text  font-size="12" font-family="Verdana" x="13.00" y="431.50">__91-[NSPersistentStoreCoordinator..</text> 
+</g> 
+<g  onmouseout="c()" class="func_g" onmouseover="s('-[NSSQLCore loadMetadata:] (1.00%)')" onclick="zoom(this)"><title >-[NSSQLCore loadMetadata:] (1.00%)</title> 
+<rect  ry="2" y="405.0" fill="rgb(206,85,28)" width="151.28204" x="10.0" height="15.0" rx="2"/> 
+<text  y="415.50" x="13.00" font-family="Verdana" font-size="12">-[NSSQLCore loadMet..</text> 
+</g> 
+<g  onclick="zoom(this)" class="func_g" onmouseover="s('-[NSSQLCore _loadAndSetMetadata] (1.00%)')" onmouseout="c()"><title >-[NSSQLCore _loadAndSetMetadata] (1.00%)</title> 
+<rect  height="15.0" fill="rgb(235,193,12)" x="10.0" width="151.28204" rx="2" y="389.0" ry="2"/> 
+<text  font-family="Verdana" font-size="12" y="399.50" x="13.00">-[NSSQLCore _loadAn..</text> 
+</g> 
+<g  class="func_g" onclick="zoom(this)" onmouseover="s('-[NSSQLiteConnection performAndWait:] (0.90%)')" onmouseout="c()"><title >-[NSSQLiteConnection performAndWait:] (0.90%)</title> 
+<rect  height="15.0" fill="rgb(248,21,44)" x="10.0" width="136.15384" y="373.0" ry="2" rx="2"/> 
+<text  x="13.00" y="383.50" font-size="12" font-family="Verdana">-[NSSQLiteConnect..</text> 
+</g> 
+<g  onmouseout="c()" onclick="zoom(this)" class="func_g" onmouseover="s('_dispatch_lane_barrier_sync_invoke_and_complete (0.90%)')"><title >_dispatch_lane_barrier_sync_invoke_and_complete (0.90%)</title> 
+<rect  fill="rgb(227,25,13)" x="10.0" rx="2" height="15.0" width="136.15384" ry="2" y="357.0"/> 
+<text  font-size="12" y="367.50" x="13.00" font-family="Verdana">_dispatch_lane_ba..</text> 
+</g> 
+<g  onmouseover="s('_dispatch_client_callout (0.90%)')" onclick="zoom(this)" class="func_g" onmouseout="c()"><title >_dispatch_client_callout (0.90%)</title> 
+<rect  fill="rgb(206,174,49)" height="15.0" rx="2" x="10.0" y="341.0" width="136.15384" ry="2"/> 
+<text  font-family="Verdana" font-size="12" y="351.50" x="13.00">_dispatch_client_..</text> 
+</g> 
+<g  onclick="zoom(this)" onmouseover="s('__37-[NSSQLiteConnection performAndWait:]_block_invoke (0.90%)')" class="func_g" onmouseout="c()"><title >__37-[NSSQLiteConnection performAndWait:]_block_invoke (0.90%)</title> 
+<rect  height="15.0" fill="rgb(239,131,26)" x="10.0" y="325.0" width="136.15384" rx="2" ry="2"/> 
+<text  font-family="Verdana" font-size="12" x="13.00" y="335.50">__37-[NSSQLiteCon..</text> 
+</g> 
+<g  class="func_g" onmouseout="c()" onmouseover="s('__32-[NSSQLCore _loadAndSetMetadata]_block_invoke (0.90%)')" onclick="zoom(this)"><title >__32-[NSSQLCore _loadAndSetMetadata]_block_invoke (0.90%)</title> 
+<rect  x="10.0" height="15.0" width="136.15384" fill="rgb(253,0,18)" y="309.0" ry="2" rx="2"/> 
+<text  font-size="12" font-family="Verdana" x="13.00" y="319.50">__32-[NSSQLCore _..</text> 
+</g> 
+<g  onmouseout="c()" onclick="zoom(this)" class="func_g" onmouseover="s('-[NSSQLiteConnection connect] (0.80%)')"><title >-[NSSQLiteConnection connect] (0.80%)</title> 
+<rect  height="15.0" rx="2" ry="2" y="293.0" width="121.025635" x="10.0" fill="rgb(216,36,43)"/> 
+<text  font-family="Verdana" x="13.00" y="303.50" font-size="12">-[NSSQLiteConne..</text> 
+</g> 
+<g  class="func_g" onclick="zoom(this)" onmouseover="s('-[NSSQLiteConnection createSchema] (0.70%)')" onmouseout="c()"><title >-[NSSQLiteConnection createSchema] (0.70%)</title> 
+<rect  height="15.0" fill="rgb(230,9,11)" rx="2" ry="2" x="10.0" width="105.89744" y="277.0"/> 
+<text  x="13.00" y="287.50" font-size="12" font-family="Verdana">-[NSSQLiteCo..</text> 
+</g> 
+<g  onmouseover="s('-[NSSQLiteConnection saveCachedModel:] (0.30%)')" class="func_g" onclick="zoom(this)" onmouseout="c()"><title >-[NSSQLiteConnection saveCachedModel:] (0.30%)</title> 
+<rect  rx="2" x="10.0" height="15.0" y="261.0" fill="rgb(225,21,52)" ry="2" width="45.384617"/> 
+<text  font-family="Verdana" x="13.00" font-size="12" y="271.50">-[NS..</text> 
+</g> 
+<g  class="func_g" onclick="zoom(this)" onmouseout="c()" onmouseover="s('-[NSSQLiteConnection _compressedDataWithModel:] (0.30%)')"><title >-[NSSQLiteConnection _compressedDataWithModel:] (0.30%)</title> 
+<rect  fill="rgb(228,93,45)" y="245.0" rx="2" width="45.384617" x="10.0" height="15.0" ry="2"/> 
+<text  x="13.00" y="255.50" font-size="12" font-family="Verdana">-[NS..</text> 
+</g> 
+<g  onmouseover="s('+[NSKeyedArchiver archivedDataWithRootObject:requiringSecureCoding:error:] (0.20%)')" class="func_g" onmouseout="c()" onclick="zoom(this)"><title >+[NSKeyedArchiver archivedDataWithRootObject:requiringSecureCoding:error:] (0.20%)</title> 
+<rect  fill="rgb(250,72,49)" x="10.0" ry="2" height="15.0" width="30.256409" rx="2" y="229.0"/> 
+<text  font-size="12" font-family="Verdana" x="13.00" y="239.50">+[..</text> 
+</g> 
+<g  onclick="zoom(this)" class="func_g" onmouseover="s('_encodeObject (0.10%)')" onmouseout="c()"><title >_encodeObject (0.10%)</title> 
+<rect  fill="rgb(230,125,15)" ry="2" rx="2" y="213.0" width="15.128206" x="10.0" height="15.0"/> 
+<text  y="223.50" font-family="Verdana" x="13.00" font-size="12"></text> 
+</g> 
+<g  onmouseover="s('-[NSManagedObjectModel encodeWithCoder:] (0.10%)')" class="func_g" onmouseout="c()" onclick="zoom(this)"><title >-[NSManagedObjectModel encodeWithCoder:] (0.10%)</title> 
+<rect  width="15.128206" ry="2" height="15.0" y="197.0" fill="rgb(247,90,49)" rx="2" x="10.0"/> 
+<text  font-size="12" x="13.00" y="207.50" font-family="Verdana"></text> 
+</g> 
+<g  onmouseout="c()" onclick="zoom(this)" class="func_g" onmouseover="s('_encodeObject (0.10%)')"><title >_encodeObject (0.10%)</title> 
+<rect  x="10.0" rx="2" width="15.128206" y="181.0" height="15.0" ry="2" fill="rgb(253,205,0)"/> 
+<text  font-size="12" x="13.00" y="191.50" font-family="Verdana"></text> 
+</g> 
+<g  onclick="zoom(this)" onmouseout="c()" class="func_g" onmouseover="s('-[NSKnownKeysDictionary1 encodeWithCoder:] (0.10%)')"><title >-[NSKnownKeysDictionary1 encodeWithCoder:] (0.10%)</title> 
+<rect  y="165.0" x="10.0" fill="rgb(240,128,0)" width="15.128206" height="15.0" ry="2" rx="2"/> 
+<text  y="175.50" font-family="Verdana" x="13.00" font-size="12"></text> 
+</g> 
+<g  onclick="zoom(this)" onmouseover="s('_encodeObject (0.10%)')" onmouseout="c()" class="func_g"><title >_encodeObject (0.10%)</title> 
+<rect  rx="2" ry="2" y="149.0" x="10.0" width="15.128206" height="15.0" fill="rgb(223,63,49)"/> 
+<text  x="13.00" y="159.50" font-size="12" font-family="Verdana"></text> 
+</g> 
+<g  class="func_g" onmouseout="c()" onmouseover="s('-[NSKeyedArchiver _encodeArrayOfObjects:forKey:] (0.10%)')" onclick="zoom(this)"><title >-[NSKeyedArchiver _encodeArrayOfObjects:forKey:] (0.10%)</title> 
+<rect  x="10.0" ry="2" rx="2" width="15.128206" y="133.0" height="15.0" fill="rgb(249,75,6)"/> 
+<text  y="143.50" font-size="12" x="13.00" font-family="Verdana"></text> 
+</g> 
+<g  onmouseover="s('_encodeObject (0.10%)')" onclick="zoom(this)" class="func_g" onmouseout="c()"><title >_encodeObject (0.10%)</title> 
+<rect  rx="2" x="10.0" fill="rgb(211,24,4)" width="15.128206" ry="2" y="117.0" height="15.0"/> 
+<text  x="13.00" y="127.50" font-size="12" font-family="Verdana"></text> 
+</g> 
+<g  onmouseout="c()" onclick="zoom(this)" onmouseover="s('-[NSEntityDescription encodeWithCoder:] (0.10%)')" class="func_g"><title >-[NSEntityDescription encodeWithCoder:] (0.10%)</title> 
+<rect  width="15.128206" ry="2" rx="2" fill="rgb(248,202,10)" height="15.0" x="10.0" y="101.0"/> 
+<text  font-family="Verdana" font-size="12" x="13.00" y="111.50"></text> 
+</g> 
+<g  onclick="zoom(this)" onmouseout="c()" class="func_g" onmouseover="s('_encodeObject (0.10%)')"><title >_encodeObject (0.10%)</title> 
+<rect  width="15.128206" y="85.0" height="15.0" ry="2" fill="rgb(227,230,53)" rx="2" x="10.0"/> 
+<text  y="95.50" font-size="12" x="13.00" font-family="Verdana"></text> 
+</g> 
+<g  onclick="zoom(this)" class="func_g" onmouseout="c()" onmouseover="s('-[NSDictionary(NSDictionary) encodeWithCoder:] (0.10%)')"><title >-[NSDictionary(NSDictionary) encodeWithCoder:] (0.10%)</title> 
+<rect  width="15.128206" x="10.0" rx="2" y="69.0" height="15.0" ry="2" fill="rgb(244,164,19)"/> 
+<text  x="13.00" font-family="Verdana" y="79.50" font-size="12"></text> 
+</g> 
+<g  onmouseout="c()" onmouseover="s('-[NSKeyedArchiver _encodeArrayOfObjects:forKey:] (0.10%)')" class="func_g" onclick="zoom(this)"><title >-[NSKeyedArchiver _encodeArrayOfObjects:forKey:] (0.10%)</title> 
+<rect  width="15.128206" height="15.0" ry="2" fill="rgb(217,106,23)" rx="2" x="10.0" y="53.0"/> 
+<text  y="63.50" x="13.00" font-size="12" font-family="Verdana"></text> 
+</g> 
+<g  onmouseout="c()" onmouseover="s('_encodeObject (0.10%)')" onclick="zoom(this)" class="func_g"><title >_encodeObject (0.10%)</title> 
+<rect  ry="2" y="37.0" rx="2" height="15.0" x="10.0" width="15.128206" fill="rgb(223,214,4)"/> 
+<text  x="13.00" font-family="Verdana" y="47.50" font-size="12"></text> 
+</g> 
+<g  onclick="zoom(this)" class="func_g" onmouseout="c()" onmouseover="s('-[NSSQLiteConnection createTablesForEntities:] (0.20%)')"><title >-[NSSQLiteConnection createTablesForEntities:] (0.20%)</title> 
+<rect  width="30.256413" y="261.0" height="15.0" ry="2" fill="rgb(218,179,51)" rx="2" x="55.384617"/> 
+<text  font-family="Verdana" y="271.50" x="58.38" font-size="12">-[..</text> 
+</g> 
+<g  class="func_g" onmouseover="s('-[NSSQLiteConnection createIndexesForEntity:] (0.10%)')" onmouseout="c()" onclick="zoom(this)"><title >-[NSSQLiteConnection createIndexesForEntity:] (0.10%)</title> 
+<rect  y="245.0" fill="rgb(221,159,10)" rx="2" height="15.0" width="15.128208" ry="2" x="55.384617"/> 
+<text  y="255.50" font-size="12" font-family="Verdana" x="58.38"></text> 
+</g> 
+<g  onclick="zoom(this)" class="func_g" onmouseout="c()" onmouseover="s('-[NSSQLiteConnection prepareAndExecuteSQLStatement:] (0.10%)')"><title >-[NSSQLiteConnection prepareAndExecuteSQLStatement:] (0.10%)</title> 
+<rect  width="15.128208" ry="2" height="15.0" fill="rgb(248,110,35)" x="55.384617" rx="2" y="229.0"/> 
+<text  font-size="12" font-family="Verdana" x="58.38" y="239.50"></text> 
+</g> 
+<g  onclick="zoom(this)" class="func_g" onmouseover="s('+[NSPersistentStoreCoordinator(_NSInternalMethods) _beginPowerAssertionWithAssert:] (0.50%)')" onmouseout="c()"><title >+[NSPersistentStoreCoordinator(_NSInternalMethods) _beginPowerAssertionWithAssert:] (0.50%)</title> 
+<rect  width="75.64102" y="405.0" height="15.0" ry="2" fill="rgb(255,209,11)" rx="2" x="161.28204"/> 
+<text  font-family="Verdana" y="415.50" x="164.28" font-size="12">+[NSPers..</text> 
+</g> 
+<g  onclick="zoom(this)" onmouseover="s('-[UIApplication __beginBackgroundTaskWithExpirationHandler:] (0.50%)')" onmouseout="c()" class="func_g"><title >-[UIApplication __beginBackgroundTaskWithExpirationHandler:] (0.50%)</title> 
+<rect  x="161.28204" width="75.64102" rx="2" ry="2" height="15.0" y="389.0" fill="rgb(227,140,18)"/> 
+<text  y="399.50" font-size="12" x="164.28" font-family="Verdana">-[UIAppl..</text> 
+</g> 
+<g  onmouseover="s('dladdr (0.40%)')" onmouseout="c()" onclick="zoom(this)" class="func_g"><title >dladdr (0.40%)</title> 
+<rect  width="60.512817" height="15.0" y="373.0" rx="2" x="161.28204" fill="rgb(233,26,17)" ry="2"/> 
+<text  x="164.28" y="383.50" font-size="12" font-family="Verdana">dladdr</text> 
+</g> 
+<g  onmouseout="c()" onmouseover="s('0x10556c670 (0.40%)')" class="func_g" onclick="zoom(this)"><title >0x10556c670 (0.40%)</title> 
+<rect  width="60.512817" x="161.28204" height="15.0" y="357.0" ry="2" fill="rgb(206,86,2)" rx="2"/> 
+<text  font-size="12" x="164.28" y="367.50" font-family="Verdana">0x1055..</text> 
+</g> 
+<g  onclick="zoom(this)" onmouseout="c()" class="func_g" onmouseover="s('0x1055766f5 (0.10%)')"><title >0x1055766f5 (0.10%)</title> 
+<rect  height="15.0" ry="2" y="341.0" x="161.28204" fill="rgb(241,220,5)" rx="2" width="15.128204"/> 
+<text  y="351.50" font-size="12" x="164.28" font-family="Verdana"></text> 
+</g> 
+<g  onmouseout="c()" onmouseover="s('0x10557675f (0.10%)')" class="func_g" onclick="zoom(this)"><title >0x10557675f (0.10%)</title> 
+<rect  height="15.0" ry="2" y="341.0" x="176.41025" fill="rgb(253,86,24)" rx="2" width="15.128204"/> 
+<text  y="351.50" font-family="Verdana" font-size="12" x="179.41"></text> 
+</g> 
+<g  class="func_g" onmouseover="s('_addBackgroundTask (0.10%)')" onclick="zoom(this)" onmouseout="c()"><title >_addBackgroundTask (0.10%)</title> 
+<rect  rx="2" ry="2" width="15.128204" fill="rgb(207,104,33)" height="15.0" y="373.0" x="221.79486"/> 
+<text  font-size="12" y="383.50" font-family="Verdana" x="224.79"></text> 
+</g> 
+<g  onmouseover="s('_dispatch_lane_barrier_sync_invoke_and_complete (0.10%)')" class="func_g" onclick="zoom(this)" onmouseout="c()"><title >_dispatch_lane_barrier_sync_invoke_and_complete (0.10%)</title> 
+<rect  width="15.128204" x="221.79486" height="15.0" y="357.0" ry="2" fill="rgb(227,88,6)" rx="2"/> 
+<text  font-size="12" font-family="Verdana" y="367.50" x="224.79"></text> 
+</g> 
+<g  onclick="zoom(this)" class="func_g" onmouseover="s('_dispatch_client_callout (0.10%)')" onmouseout="c()"><title >_dispatch_client_callout (0.10%)</title> 
+<rect  rx="2" ry="2" fill="rgb(227,98,24)" x="221.79486" y="341.0" height="15.0" width="15.128204"/> 
+<text  x="224.79" font-family="Verdana" y="351.50" font-size="12"></text> 
+</g> 
+<g  class="func_g" onmouseover="s('___addBackgroundTask_block_invoke (0.10%)')" onmouseout="c()" onclick="zoom(this)"><title >___addBackgroundTask_block_invoke (0.10%)</title> 
+<rect  rx="2" height="15.0" ry="2" width="15.128204" x="221.79486" y="325.0" fill="rgb(223,176,26)"/> 
+<text  font-family="Verdana" x="224.79" font-size="12" y="335.50"></text> 
+</g> 
+<g  onmouseover="s('_dispatch_once_callout (0.10%)')" class="func_g" onmouseout="c()" onclick="zoom(this)"><title >_dispatch_once_callout (0.10%)</title> 
+<rect  width="15.128204" ry="2" rx="2" height="15.0" y="309.0" x="221.79486" fill="rgb(248,143,21)"/> 
+<text  y="319.50" x="224.79" font-size="12" font-family="Verdana"></text> 
+</g> 
+<g  class="func_g" onmouseover="s('_dispatch_client_callout (0.10%)')" onclick="zoom(this)" onmouseout="c()"><title >_dispatch_client_callout (0.10%)</title> 
+<rect  y="293.0" fill="rgb(251,125,53)" height="15.0" x="221.79486" rx="2" ry="2" width="15.128204"/> 
+<text  font-size="12" font-family="Verdana" x="224.79" y="303.50"></text> 
+</g> 
+<g  onmouseout="c()" onclick="zoom(this)" class="func_g" onmouseover="s('___applicationHasUnboundedBackgroundTaskAssertions_block_invoke (0.10%)')"><title >___applicationHasUnboundedBackgroundTaskAssertions_block_invoke (0.10%)</title> 
+<rect  x="221.79486" fill="rgb(244,75,6)" ry="2" rx="2" y="277.0" width="15.128204" height="15.0"/> 
+<text  x="224.79" font-family="Verdana" y="287.50" font-size="12"></text> 
+</g> 
+<g  onmouseout="c()" class="func_g" onclick="zoom(this)" onmouseover="s('+[LSBundleProxy bundleProxyForCurrentProcess] (0.10%)')"><title >+[LSBundleProxy bundleProxyForCurrentProcess] (0.10%)</title> 
+<rect  fill="rgb(246,89,10)" y="261.0" height="15.0" ry="2" x="221.79486" rx="2" width="15.128204"/> 
+<text  font-size="12" x="224.79" font-family="Verdana" y="271.50"></text> 
+</g> 
+<g  onclick="zoom(this)" onmouseover="s('-[NSManagedObjectModel(_NSInternalMethods) _initWithContentsOfURL:options:] (0.20%)')" onmouseout="c()" class="func_g"><title >-[NSManagedObjectModel(_NSInternalMethods) _initWithContentsOfURL:options:] (0.20%)</title> 
+<rect  y="501.0" width="30.256409" height="15.0" ry="2" x="267.17947" rx="2" fill="rgb(216,215,1)"/> 
+<text  font-family="Verdana" y="511.50" x="270.18" font-size="12">-[..</text> 
+</g> 
+<g  onclick="zoom(this)" onmouseout="c()" class="func_g" onmouseover="s('-[NSKeyedUnarchiver decodeObjectOfClasses:forKey:] (0.10%)')"><title >-[NSKeyedUnarchiver decodeObjectOfClasses:forKey:] (0.10%)</title> 
+<rect  width="15.128204" x="267.17947" height="15.0" y="485.0" ry="2" fill="rgb(208,134,24)" rx="2"/> 
+<text  font-size="12" y="495.50" x="270.18" font-family="Verdana"></text> 
+</g> 
+<g  onclick="zoom(this)" onmouseout="c()" onmouseover="s('-[NSKeyedUnarchiver decodeObjectForKey:] (0.10%)')" class="func_g"><title >-[NSKeyedUnarchiver decodeObjectForKey:] (0.10%)</title> 
+<rect  height="15.0" ry="2" y="469.0" x="267.17947" fill="rgb(250,98,22)" rx="2" width="15.128204"/> 
+<text  x="270.18" font-size="12" font-family="Verdana" y="479.50"></text> 
+</g> 
+<g  onmouseover="s('_decodeObject (0.10%)')" onmouseout="c()" onclick="zoom(this)" class="func_g"><title >_decodeObject (0.10%)</title> 
+<rect  y="453.0" ry="2" rx="2" x="267.17947" width="15.128204" fill="rgb(254,200,43)" height="15.0"/> 
+<text  font-size="12" x="270.18" y="463.50" font-family="Verdana"></text> 
+</g> 
+<g  onclick="zoom(this)" class="func_g" onmouseout="c()" onmouseover="s('_decodeObjectBinary (0.10%)')"><title >_decodeObjectBinary (0.10%)</title> 
+<rect  rx="2" width="15.128204" x="267.17947" fill="rgb(240,53,38)" y="437.0" ry="2" height="15.0"/> 
+<text  font-size="12" y="447.50" font-family="Verdana" x="270.18"></text> 
+</g> 
+<g  onmouseout="c()" onmouseover="s('-[NSManagedObjectModel initWithCoder:] (0.10%)')" class="func_g" onclick="zoom(this)"><title >-[NSManagedObjectModel initWithCoder:] (0.10%)</title> 
+<rect  ry="2" y="421.0" x="267.17947" fill="rgb(238,72,23)" height="15.0" rx="2" width="15.128204"/> 
+<text  font-size="12" y="431.50" x="270.18" font-family="Verdana"></text> 
+</g> 
+<g  onmouseover="s('-[NSKeyedUnarchiver decodeObjectOfClasses:forKey:] (0.10%)')" onclick="zoom(this)" onmouseout="c()" class="func_g"><title >-[NSKeyedUnarchiver decodeObjectOfClasses:forKey:] (0.10%)</title> 
+<rect  ry="2" y="405.0" height="15.0" x="267.17947" width="15.128204" rx="2" fill="rgb(232,210,2)"/> 
+<text  font-size="12" font-family="Verdana" y="415.50" x="270.18"></text> 
+</g> 
+<g  onmouseover="s('-[NSKeyedUnarchiver decodeObjectForKey:] (0.10%)')" class="func_g" onmouseout="c()" onclick="zoom(this)"><title >-[NSKeyedUnarchiver decodeObjectForKey:] (0.10%)</title> 
+<rect  y="389.0" width="15.128204" rx="2" ry="2" height="15.0" fill="rgb(235,89,1)" x="267.17947"/> 
+<text  font-size="12" x="270.18" font-family="Verdana" y="399.50"></text> 
+</g> 
+<g  class="func_g" onmouseout="c()" onclick="zoom(this)" onmouseover="s('_decodeObject (0.10%)')"><title >_decodeObject (0.10%)</title> 
+<rect  rx="2" y="373.0" fill="rgb(208,136,25)" width="15.128204" x="267.17947" ry="2" height="15.0"/> 
+<text  x="270.18" font-size="12" y="383.50" font-family="Verdana"></text> 
+</g> 
+<g  class="func_g" onmouseover="s('_decodeObjectBinary (0.10%)')" onclick="zoom(this)" onmouseout="c()"><title >_decodeObjectBinary (0.10%)</title> 
+<rect  rx="2" y="357.0" fill="rgb(209,53,50)" ry="2" x="267.17947" width="15.128204" height="15.0"/> 
+<text  x="270.18" font-family="Verdana" y="367.50" font-size="12"></text> 
+</g> 
+<g  onmouseout="c()" onmouseover="s('-[NSDictionary(NSDictionary) initWithCoder:] (0.10%)')" onclick="zoom(this)" class="func_g"><title >-[NSDictionary(NSDictionary) initWithCoder:] (0.10%)</title> 
+<rect  ry="2" y="341.0" width="15.128204" fill="rgb(231,179,45)" rx="2" height="15.0" x="267.17947"/> 
+<text  x="270.18" y="351.50" font-size="12" font-family="Verdana"></text> 
+</g> 
+<g  onmouseover="s('-[NSKeyedUnarchiver _decodeArrayOfObjectsForKey:] (0.10%)')" onmouseout="c()" onclick="zoom(this)" class="func_g"><title >-[NSKeyedUnarchiver _decodeArrayOfObjectsForKey:] (0.10%)</title> 
+<rect  y="325.0" rx="2" fill="rgb(255,63,39)" height="15.0" ry="2" width="15.128204" x="267.17947"/> 
+<text  font-family="Verdana" x="270.18" y="335.50" font-size="12"></text> 
+</g> 
+<g  onmouseover="s('_decodeObjectBinary (0.10%)')" class="func_g" onmouseout="c()" onclick="zoom(this)"><title >_decodeObjectBinary (0.10%)</title> 
+<rect  fill="rgb(243,143,21)" rx="2" y="309.0" width="15.128204" ry="2" height="15.0" x="267.17947"/> 
+<text  x="270.18" font-family="Verdana" y="319.50" font-size="12"></text> 
+</g> 
+<g  onmouseover="s('-[NSEntityDescription initWithCoder:] (0.10%)')" onclick="zoom(this)" class="func_g" onmouseout="c()"><title >-[NSEntityDescription initWithCoder:] (0.10%)</title> 
+<rect  height="15.0" rx="2" x="267.17947" width="15.128204" fill="rgb(232,22,34)" ry="2" y="293.0"/> 
+<text  font-size="12" x="270.18" y="303.50" font-family="Verdana"></text> 
+</g> 
+<g  onmouseout="c()" onmouseover="s('-[NSKeyedUnarchiver decodeObjectOfClasses:forKey:] (0.10%)')" onclick="zoom(this)" class="func_g"><title >-[NSKeyedUnarchiver decodeObjectOfClasses:forKey:] (0.10%)</title> 
+<rect  ry="2" width="15.128204" fill="rgb(253,15,29)" y="277.0" rx="2" x="267.17947" height="15.0"/> 
+<text  y="287.50" x="270.18" font-size="12" font-family="Verdana"></text> 
+</g> 
+<g  onmouseover="s('-[NSKeyedUnarchiver decodeObjectForKey:] (0.10%)')" onmouseout="c()" onclick="zoom(this)" class="func_g"><title >-[NSKeyedUnarchiver decodeObjectForKey:] (0.10%)</title> 
+<rect  ry="2" x="267.17947" height="15.0" y="261.0" fill="rgb(248,10,51)" width="15.128204" rx="2"/> 
+<text  font-family="Verdana" font-size="12" x="270.18" y="271.50"></text> 
+</g> 
+<g  class="func_g" onmouseout="c()" onmouseover="s('_decodeObject (0.10%)')" onclick="zoom(this)"><title >_decodeObject (0.10%)</title> 
+<rect  ry="2" height="15.0" x="267.17947" fill="rgb(237,78,6)" y="245.0" rx="2" width="15.128204"/> 
+<text  font-family="Verdana" x="270.18" y="255.50" font-size="12"></text> 
+</g> 
+<g  onclick="zoom(this)" class="func_g" onmouseout="c()" onmouseover="s('_decodeObjectBinary (0.10%)')"><title >_decodeObjectBinary (0.10%)</title> 
+<rect  x="267.17947" height="15.0" width="15.128204" fill="rgb(232,205,52)" ry="2" y="229.0" rx="2"/> 
+<text  y="239.50" x="270.18" font-size="12" font-family="Verdana"></text> 
+</g> 
+<g  onmouseout="c()" class="func_g" onmouseover="s('-[NSDictionary(NSDictionary) initWithCoder:] (0.10%)')" onclick="zoom(this)"><title >-[NSDictionary(NSDictionary) initWithCoder:] (0.10%)</title> 
+<rect  ry="2" width="15.128204" x="267.17947" rx="2" fill="rgb(223,14,12)" height="15.0" y="213.0"/> 
+<text  y="223.50" x="270.18" font-family="Verdana" font-size="12"></text> 
+</g> 
+<g  onmouseout="c()" onmouseover="s('-[NSKeyedUnarchiver _decodeArrayOfObjectsForKey:] (0.10%)')" class="func_g" onclick="zoom(this)"><title >-[NSKeyedUnarchiver _decodeArrayOfObjectsForKey:] (0.10%)</title> 
+<rect  ry="2" rx="2" height="15.0" width="15.128204" x="267.17947" fill="rgb(233,89,27)" y="197.0"/> 
+<text  y="207.50" x="270.18" font-size="12" font-family="Verdana"></text> 
+</g> 
+<g  class="func_g" onclick="zoom(this)" onmouseover="s('_decodeObjectBinary (0.10%)')" onmouseout="c()"><title >_decodeObjectBinary (0.10%)</title> 
+<rect  x="267.17947" width="15.128204" rx="2" height="15.0" y="181.0" fill="rgb(248,63,54)" ry="2"/> 
+<text  y="191.50" font-size="12" font-family="Verdana" x="270.18"></text> 
+</g> 
+<g  onmouseout="c()" class="func_g" onclick="zoom(this)" onmouseover="s('+[MWKLanguageLinkController sharedInstance] (1.30%)')"><title >+[MWKLanguageLinkController sharedInstance] (1.30%)</title> 
+<rect  rx="2" height="15.0" ry="2" x="327.69226" y="517.0" width="196.66663" fill="rgb(212,170,35)"/> 
+<text  font-size="12" font-family="Verdana" y="527.50" x="330.69">+[MWKLanguageLinkControll..</text> 
+</g> 
+<g  onmouseout="c()" onclick="zoom(this)" class="func_g" onmouseover="s('_dispatch_once_callout (1.30%)')"><title >_dispatch_once_callout (1.30%)</title> 
+<rect  y="501.0" width="196.66663" height="15.0" ry="2" x="327.69226" rx="2" fill="rgb(205,125,35)"/> 
+<text  font-size="12" font-family="Verdana" y="511.50" x="330.69">_dispatch_once_callout</text> 
+</g> 
+<g  class="func_g" onclick="zoom(this)" onmouseout="c()" onmouseover="s('_dispatch_client_callout (1.30%)')"><title >_dispatch_client_callout (1.30%)</title> 
+<rect  width="196.66663" rx="2" ry="2" height="15.0" fill="rgb(206,161,31)" y="485.0" x="327.69226"/> 
+<text  font-family="Verdana" y="495.50" x="330.69" font-size="12">_dispatch_client_callout</text> 
+</g> 
+<g  onmouseover="s('__43+[MWKLanguageLinkController sharedInstance]_block_invoke (1.30%)')" onmouseout="c()" onclick="zoom(this)" class="func_g"><title >__43+[MWKLanguageLinkController sharedInstance]_block_invoke (1.30%)</title> 
+<rect  width="196.66663" x="327.69226" height="15.0" y="469.0" ry="2" fill="rgb(240,60,55)" rx="2"/> 
+<text  y="479.50" font-size="12" x="330.69" font-family="Verdana">__43+[MWKLanguageLinkCont..</text> 
+</g> 
+<g  onmouseover="s('-[MWKLanguageLinkController init] (1.30%)')" onmouseout="c()" onclick="zoom(this)" class="func_g"><title >-[MWKLanguageLinkController init] (1.30%)</title> 
+<rect  rx="2" height="15.0" ry="2" width="196.66663" x="327.69226" y="453.0" fill="rgb(226,160,30)"/> 
+<text  font-size="12" y="463.50" x="330.69" font-family="Verdana">-[MWKLanguageLinkControll..</text> 
+</g> 
+<g  class="func_g" onmouseout="c()" onclick="zoom(this)" onmouseover="s('-[MWKLanguageLinkController loadLanguagesFromFile] (1.30%)')"><title >-[MWKLanguageLinkController loadLanguagesFromFile] (1.30%)</title> 
+<rect  x="327.69226" y="437.0" rx="2" width="196.66663" ry="2" height="15.0" fill="rgb(253,197,31)"/> 
+<text  y="447.50" x="330.69" font-family="Verdana" font-size="12">-[MWKLanguageLinkControll..</text> 
+</g> 
+<g  class="func_g" onmouseover="s('@objc NSArray.wmf_map(_:) (1.10%)')" onclick="zoom(this)" onmouseout="c()"><title >@objc NSArray.wmf_map(_:) (1.10%)</title> 
+<rect  x="327.69226" fill="rgb(249,111,45)" rx="2" height="15.0" y="421.0" ry="2" width="166.41022"/> 
+<text  y="431.50" font-family="Verdana" font-size="12" x="330.69">@objc NSArray.wmf_map..</text> 
+</g> 
+<g  class="func_g" onmouseout="c()" onclick="zoom(this)" onmouseover="s('specialized Sequence.map&lt;A&gt;(_:) (1.10%)')"><title >specialized Sequence.map&lt;A&gt;(_:) (1.10%)</title> 
+<rect  rx="2" y="405.0" fill="rgb(224,126,39)" width="166.41022" x="327.69226" ry="2" height="15.0"/> 
+<text  font-size="12" font-family="Verdana" y="415.50" x="330.69">specialized Sequence...</text> 
+</g> 
+<g  onmouseout="c()" class="func_g" onclick="zoom(this)" onmouseover="s('specialized Sequence.map&lt;A&gt;(_:) (1.10%)')"><title >specialized Sequence.map&lt;A&gt;(_:) (1.10%)</title> 
+<rect  y="389.0" rx="2" width="166.41022" fill="rgb(232,0,34)" x="327.69226" height="15.0" ry="2"/> 
+<text  x="330.69" y="399.50" font-size="12" font-family="Verdana">specialized Sequence...</text> 
+</g> 
+<g  class="func_g" onmouseout="c()" onclick="zoom(this)" onmouseover="s('__50-[MWKLanguageLinkController loadLanguagesFromFile]_block_invoke (1.10%)')"><title >__50-[MWKLanguageLinkController loadLanguagesFromFile]_block_invoke (1.10%)</title> 
+<rect  width="166.41022" rx="2" fill="rgb(252,149,53)" x="327.69226" height="15.0" y="373.0" ry="2"/> 
+<text  font-size="12" x="330.69" y="383.50" font-family="Verdana">__50-[MWKLanguageLink..</text> 
+</g> 
+<g  class="func_g" onmouseover="s('@objc NSLocale.wmf_localizedLanguageNameForCode(_:) (1.10%)')" onmouseout="c()" onclick="zoom(this)"><title >@objc NSLocale.wmf_localizedLanguageNameForCode(_:) (1.10%)</title> 
+<rect  fill="rgb(235,203,22)" rx="2" y="357.0" width="166.41022" ry="2" height="15.0" x="327.69226"/> 
+<text  y="367.50" x="330.69" font-size="12" font-family="Verdana">@objc NSLocale.wmf_lo..</text> 
+</g> 
+<g  onclick="zoom(this)" class="func_g" onmouseover="s('-[__NSCFLocale displayNameForKey:value:] (1.10%)')" onmouseout="c()"><title >-[__NSCFLocale displayNameForKey:value:] (1.10%)</title> 
+<rect  y="341.0" ry="2" rx="2" height="15.0" width="166.41022" x="327.69226" fill="rgb(222,200,12)"/> 
+<text  y="351.50" font-family="Verdana" x="330.69" font-size="12">-[__NSCFLocale displa..</text> 
+</g> 
+<g  onclick="zoom(this)" onmouseout="c()" class="func_g" onmouseover="s('CFLocaleCopyDisplayNameForPropertyValue (1.10%)')"><title >CFLocaleCopyDisplayNameForPropertyValue (1.10%)</title> 
+<rect  ry="2" height="15.0" x="327.69226" fill="rgb(209,38,5)" y="325.0" rx="2" width="166.41022"/> 
+<text  font-size="12" font-family="Verdana" x="330.69" y="335.50">CFLocaleCopyDisplayNa..</text> 
+</g> 
+<g  class="func_g" onclick="zoom(this)" onmouseover="s('__CFLocaleLanguageName (0.90%)')" onmouseout="c()"><title >__CFLocaleLanguageName (0.90%)</title> 
+<rect  x="327.69226" width="136.15381" ry="2" height="15.0" rx="2" fill="rgb(209,51,13)" y="309.0"/> 
+<text  y="319.50" x="330.69" font-size="12" font-family="Verdana">__CFLocaleLanguag..</text> 
+</g> 
+<g  onmouseover="s('uloc_getDisplayLanguage (0.90%)')" class="func_g" onmouseout="c()" onclick="zoom(this)"><title >uloc_getDisplayLanguage (0.90%)</title> 
+<rect  width="136.15381" fill="rgb(213,198,54)" y="293.0" height="15.0" rx="2" x="327.69226" ry="2"/> 
+<text  font-family="Verdana" x="330.69" y="303.50" font-size="12">uloc_getDisplayLa..</text> 
+</g> 
+<g  onmouseout="c()" onclick="zoom(this)" class="func_g" onmouseover="s('0x10fb60c6f (0.90%)')"><title >0x10fb60c6f (0.90%)</title> 
+<rect  fill="rgb(253,220,9)" height="15.0" rx="2" x="327.69226" y="277.0" ry="2" width="136.15381"/> 
+<text  font-size="12" y="287.50" x="330.69" font-family="Verdana">0x10fb60c6f</text> 
+</g> 
+<g  class="func_g" onmouseover="s('uloc_getTableStringWithFallback (0.90%)')" onclick="zoom(this)" onmouseout="c()"><title >uloc_getTableStringWithFallback (0.90%)</title> 
+<rect  height="15.0" x="327.69226" y="261.0" width="136.15381" fill="rgb(212,33,5)" ry="2" rx="2"/> 
+<text  font-family="Verdana" y="271.50" x="330.69" font-size="12">uloc_getTableStri..</text> 
+</g> 
+<g  onclick="zoom(this)" onmouseout="c()" class="func_g" onmouseover="s('ures_getStringByKeyWithFallback (0.90%)')"><title >ures_getStringByKeyWithFallback (0.90%)</title> 
+<rect  rx="2" ry="2" x="327.69226" y="245.0" fill="rgb(233,205,5)" width="136.15381" height="15.0"/> 
+<text  font-family="Verdana" font-size="12" y="255.50" x="330.69">ures_getStringByK..</text> 
+</g> 
+<g  class="func_g" onmouseout="c()" onclick="zoom(this)" onmouseover="s('res_getString (0.90%)')"><title >res_getString (0.90%)</title> 
+<rect  x="327.69226" height="15.0" ry="2" fill="rgb(240,125,0)" width="136.15381" rx="2" y="229.0"/> 
+<text  font-family="Verdana" font-size="12" x="330.69" y="239.50">res_getString</text> 
+</g> 
+<g  onmouseout="c()" class="func_g" onclick="zoom(this)" onmouseover="s('@objc RemoteNotificationsController.init(session:configuration:) (0.50%)')"><title >@objc RemoteNotificationsController.init(session:configuration:) (0.50%)</title> 
+<rect  rx="2" height="15.0" ry="2" x="524.3589" y="517.0" width="75.64099" fill="rgb(237,189,39)"/> 
+<text  font-size="12" font-family="Verdana" y="527.50" x="527.36">@objc Re..</text> 
+</g> 
+<g  onmouseover="s('RemoteNotificationsOperationsController.init(session:configuration:) (0.50%)')" onclick="zoom(this)" onmouseout="c()" class="func_g"><title >RemoteNotificationsOperationsController.init(session:configuration:) (0.50%)</title> 
+<rect  y="501.0" width="75.64099" height="15.0" ry="2" x="524.3589" rx="2" fill="rgb(210,117,48)"/> 
+<text  font-family="Verdana" font-size="12" x="527.36" y="511.50">RemoteNo..</text> 
+</g> 
+<g  class="func_g" onmouseover="s('RemoteNotificationsModelController.__allocating_init(_:) (0.50%)')" onmouseout="c()" onclick="zoom(this)"><title >RemoteNotificationsModelController.__allocating_init(_:) (0.50%)</title> 
+<rect  width="75.64099" rx="2" ry="2" height="15.0" fill="rgb(253,183,49)" y="485.0" x="524.3589"/> 
+<text  font-family="Verdana" y="495.50" x="527.36" font-size="12">RemoteNo..</text> 
+</g> 
+<g  onmouseout="c()" onmouseover="s('RemoteNotificationsModelController.init(_:) (0.50%)')" onclick="zoom(this)" class="func_g"><title >RemoteNotificationsModelController.init(_:) (0.50%)</title> 
+<rect  fill="rgb(232,37,42)" x="524.3589" ry="2" y="469.0" width="75.64099" height="15.0" rx="2"/> 
+<text  y="479.50" font-size="12" x="527.36" font-family="Verdana">RemoteNo..</text> 
+</g> 
+<g  onclick="zoom(this)" onmouseover="s('-[NSPersistentContainer loadPersistentStoresWithCompletionHandler:] (0.50%)')" class="func_g" onmouseout="c()"><title >-[NSPersistentContainer loadPersistentStoresWithCompletionHandler:] (0.50%)</title> 
+<rect  fill="rgb(250,159,45)" rx="2" width="75.64099" x="524.3589" ry="2" y="453.0" height="15.0"/> 
+<text  y="463.50" font-family="Verdana" font-size="12" x="527.36">-[NSPers..</text> 
+</g> 
+<g  onmouseover="s('-[NSPersistentStoreCoordinator addPersistentStoreWithDescription:completionHandler:] (0.50%)')" class="func_g" onclick="zoom(this)" onmouseout="c()"><title >-[NSPersistentStoreCoordinator addPersistentStoreWithDescription:completionHandler:] (0.50%)</title> 
+<rect  rx="2" height="15.0" ry="2" width="75.64099" x="524.3589" y="437.0" fill="rgb(246,174,31)"/> 
+<text  y="447.50" x="527.36" font-family="Verdana" font-size="12">-[NSPers..</text> 
+</g> 
+<g  onmouseout="c()" class="func_g" onmouseover="s('-[NSPersistentStoreCoordinator _doAddPersistentStoreWithDescription:privateCopy:completionHandler:] (0.50%)')" onclick="zoom(this)"><title >-[NSPersistentStoreCoordinator _doAddPersistentStoreWithDescription:privateCopy:completionHandler:] (0.50%)</title> 
+<rect  y="421.0" width="75.64099" ry="2" x="524.3589" rx="2" fill="rgb(247,115,47)" height="15.0"/> 
+<text  font-family="Verdana" font-size="12" y="431.50" x="527.36">-[NSPers..</text> 
+</g> 
+<g  onmouseover="s('-[NSPersistentStoreCoordinator addPersistentStoreWithType:configuration:URL:options:error:] (0.50%)')" onclick="zoom(this)" class="func_g" onmouseout="c()"><title >-[NSPersistentStoreCoordinator addPersistentStoreWithType:configuration:URL:options:error:] (0.50%)</title> 
+<rect  x="524.3589" y="405.0" height="15.0" ry="2" fill="rgb(238,22,53)" rx="2" width="75.64099"/> 
+<text  x="527.36" font-size="12" y="415.50" font-family="Verdana">-[NSPers..</text> 
+</g> 
+<g  onmouseover="s('_perform (0.50%)')" onmouseout="c()" onclick="zoom(this)" class="func_g"><title >_perform (0.50%)</title> 
+<rect  ry="2" fill="rgb(246,103,7)" x="524.3589" width="75.64099" y="389.0" height="15.0" rx="2"/> 
+<text  font-size="12" y="399.50" font-family="Verdana" x="527.36">_perform</text> 
+</g> 
+<g  class="func_g" onmouseover="s('_dispatch_lane_barrier_sync_invoke_and_complete (0.50%)')" onclick="zoom(this)" onmouseout="c()"><title >_dispatch_lane_barrier_sync_invoke_and_complete (0.50%)</title> 
+<rect  width="75.64099" x="524.3589" y="373.0" fill="rgb(224,116,41)" rx="2" ry="2" height="15.0"/> 
+<text  font-family="Verdana" x="527.36" y="383.50" font-size="12">_dispatc..</text> 
+</g> 
+<g  onmouseover="s('_dispatch_client_callout (0.50%)')" onclick="zoom(this)" class="func_g" onmouseout="c()"><title >_dispatch_client_callout (0.50%)</title> 
+<rect  width="75.64099" x="524.3589" rx="2" height="15.0" y="357.0" fill="rgb(255,56,28)" ry="2"/> 
+<text  font-size="12" y="367.50" x="527.36" font-family="Verdana">_dispatc..</text> 
+</g> 
+<g  onmouseover="s('gutsOfBlockToNSPersistentStoreCoordinatorPerform (0.50%)')" class="func_g" onmouseout="c()" onclick="zoom(this)"><title >gutsOfBlockToNSPersistentStoreCoordinatorPerform (0.50%)</title> 
+<rect  width="75.64099" height="15.0" y="341.0" fill="rgb(236,173,20)" x="524.3589" rx="2" ry="2"/> 
+<text  x="527.36" y="351.50" font-size="12" font-family="Verdana">gutsOfBl..</text> 
+</g> 
+<g  onmouseout="c()" onclick="zoom(this)" class="func_g" onmouseover="s('__91-[NSPersistentStoreCoordinator addPersistentStoreWithType:configuration:URL:options:error:]_block_invoke (0.50%)')"><title >__91-[NSPersistentStoreCoordinator addPersistentStoreWithType:configuration:URL:options:error:]_block_invoke (0.50%)</title> 
+<rect  rx="2" width="75.64099" height="15.0" ry="2" fill="rgb(224,65,26)" y="325.0" x="524.3589"/> 
+<text  font-size="12" x="527.36" font-family="Verdana" y="335.50">__91-[NS..</text> 
+</g> 
+<g  onclick="zoom(this)" class="func_g" onmouseout="c()" onmouseover="s('-[NSSQLCore loadMetadata:] (0.40%)')"><title >-[NSSQLCore loadMetadata:] (0.40%)</title> 
+<rect  y="309.0" x="524.3589" rx="2" ry="2" width="60.512817" height="15.0" fill="rgb(218,4,25)"/> 
+<text  y="319.50" font-family="Verdana" font-size="12" x="527.36">-[NSSQ..</text> 
+</g> 
+<g  onclick="zoom(this)" class="func_g" onmouseout="c()" onmouseover="s('-[NSSQLCore _loadAndSetMetadata] (0.40%)')"><title >-[NSSQLCore _loadAndSetMetadata] (0.40%)</title> 
+<rect  x="524.3589" width="60.512817" fill="rgb(254,39,11)" rx="2" y="293.0" ry="2" height="15.0"/> 
+<text  x="527.36" y="303.50" font-size="12" font-family="Verdana">-[NSSQ..</text> 
+</g> 
+<g  class="func_g" onclick="zoom(this)" onmouseout="c()" onmouseover="s('-[NSSQLiteConnection performAndWait:] (0.40%)')"><title >-[NSSQLiteConnection performAndWait:] (0.40%)</title> 
+<rect  width="60.512817" rx="2" ry="2" height="15.0" y="277.0" fill="rgb(228,41,19)" x="524.3589"/> 
+<text  y="287.50" x="527.36" font-family="Verdana" font-size="12">-[NSSQ..</text> 
+</g> 
+<g  class="func_g" onmouseover="s('_dispatch_lane_barrier_sync_invoke_and_complete (0.40%)')" onmouseout="c()" onclick="zoom(this)"><title >_dispatch_lane_barrier_sync_invoke_and_complete (0.40%)</title> 
+<rect  ry="2" x="524.3589" rx="2" y="261.0" width="60.512817" height="15.0" fill="rgb(255,6,4)"/> 
+<text  font-family="Verdana" y="271.50" x="527.36" font-size="12">_dispa..</text> 
+</g> 
+<g  onclick="zoom(this)" onmouseout="c()" onmouseover="s('_dispatch_client_callout (0.40%)')" class="func_g"><title >_dispatch_client_callout (0.40%)</title> 
+<rect  rx="2" y="245.0" height="15.0" fill="rgb(225,228,15)" width="60.512817" ry="2" x="524.3589"/> 
+<text  font-family="Verdana" font-size="12" x="527.36" y="255.50">_dispa..</text> 
+</g> 
+<g  class="func_g" onmouseover="s('__37-[NSSQLiteConnection performAndWait:]_block_invoke (0.40%)')" onmouseout="c()" onclick="zoom(this)"><title >__37-[NSSQLiteConnection performAndWait:]_block_invoke (0.40%)</title> 
+<rect  height="15.0" rx="2" x="524.3589" y="229.0" fill="rgb(246,155,7)" width="60.512817" ry="2"/> 
+<text  x="527.36" y="239.50" font-family="Verdana" font-size="12">__37-[..</text> 
+</g> 
+<g  onclick="zoom(this)" onmouseover="s('__32-[NSSQLCore _loadAndSetMetadata]_block_invoke (0.40%)')" onmouseout="c()" class="func_g"><title >__32-[NSSQLCore _loadAndSetMetadata]_block_invoke (0.40%)</title> 
+<rect  x="524.3589" ry="2" fill="rgb(245,136,13)" width="60.512817" height="15.0" rx="2" y="213.0"/> 
+<text  y="223.50" x="527.36" font-size="12" font-family="Verdana">__32-[..</text> 
+</g> 
+<g  class="func_g" onmouseover="s('-[NSSQLiteConnection connect] (0.40%)')" onclick="zoom(this)" onmouseout="c()"><title >-[NSSQLiteConnection connect] (0.40%)</title> 
+<rect  fill="rgb(208,10,11)" ry="2" rx="2" height="15.0" x="524.3589" y="197.0" width="60.512817"/> 
+<text  font-size="12" font-family="Verdana" x="527.36" y="207.50">-[NSSQ..</text> 
+</g> 
+<g  onclick="zoom(this)" class="func_g" onmouseout="c()" onmouseover="s('-[NSSQLiteConnection createSchema] (0.30%)')"><title >-[NSSQLiteConnection createSchema] (0.30%)</title> 
+<rect  x="524.3589" height="15.0" width="45.384644" rx="2" ry="2" y="181.0" fill="rgb(236,200,35)"/> 
+<text  y="191.50" font-family="Verdana" font-size="12" x="527.36">-[NS..</text> 
+</g> 
+<g  onmouseover="s('-[MWKDataStore setupHistoryAndSavedPageLists] (0.30%)')" onclick="zoom(this)" class="func_g" onmouseout="c()"><title >-[MWKDataStore setupHistoryAndSavedPageLists] (0.30%)</title> 
+<rect  rx="2" height="15.0" x="599.9999" width="45.384583" fill="rgb(246,128,25)" ry="2" y="517.0"/> 
+<text  font-size="12" y="527.50" font-family="Verdana" x="603.00">-[MW..</text> 
+</g> 
+<g  onclick="zoom(this)" class="func_g" onmouseover="s('@objc WMFReadingListsController.init(dataStore:) (0.20%)')" onmouseout="c()"><title >@objc WMFReadingListsController.init(dataStore:) (0.20%)</title> 
+<rect  x="599.9999" fill="rgb(230,169,15)" y="501.0" rx="2" ry="2" height="15.0" width="30.256409"/> 
+<text  x="603.00" font-size="12" y="511.50" font-family="Verdana">@o..</text> 
+</g> 
+<g  onmouseout="c()" class="func_g" onmouseover="s('WMFReadingListsController.init(dataStore:) (0.20%)')" onclick="zoom(this)"><title >WMFReadingListsController.init(dataStore:) (0.20%)</title> 
+<rect  fill="rgb(208,91,46)" width="30.256409" height="15.0" y="485.0" rx="2" x="599.9999" ry="2"/> 
+<text  y="495.50" font-family="Verdana" font-size="12" x="603.00">WM..</text> 
+</g> 
+<g  onmouseover="s('specialized WMFReadingListsController.init(dataStore:) (0.20%)')" onclick="zoom(this)" class="func_g" onmouseout="c()"><title >specialized WMFReadingListsController.init(dataStore:) (0.20%)</title> 
+<rect  ry="2" fill="rgb(253,107,33)" y="469.0" rx="2" height="15.0" x="599.9999" width="30.256409"/> 
+<text  y="479.50" x="603.00" font-size="12" font-family="Verdana">sp..</text> 
+</g> 
+<g  onmouseover="s('Fetcher.__allocating_init() (0.20%)')" class="func_g" onmouseout="c()" onclick="zoom(this)"><title >Fetcher.__allocating_init() (0.20%)</title> 
+<rect  width="30.256409" ry="2" height="15.0" fill="rgb(210,213,13)" rx="2" x="599.9999" y="453.0"/> 
+<text  x="603.00" y="463.50" font-family="Verdana" font-size="12">Fe..</text> 
+</g> 
+<g  onmouseout="c()" class="func_g" onclick="zoom(this)" onmouseover="s('@objc Fetcher.init() (0.20%)')"><title >@objc Fetcher.init() (0.20%)</title> 
+<rect  x="599.9999" width="30.256409" y="437.0" ry="2" height="15.0" rx="2" fill="rgb(228,65,25)"/> 
+<text  font-size="12" font-family="Verdana" x="603.00" y="447.50">@o..</text> 
+</g> 
+<g  onclick="zoom(this)" class="func_g" onmouseover="s('Session.shared.unsafeMutableAddressor (0.20%)')" onmouseout="c()"><title >Session.shared.unsafeMutableAddressor (0.20%)</title> 
+<rect  y="421.0" ry="2" x="599.9999" width="30.256409" fill="rgb(247,97,23)" height="15.0" rx="2"/> 
+<text  font-size="12" x="603.00" font-family="Verdana" y="431.50">Se..</text> 
+</g> 
+<g  onmouseout="c()" onmouseover="s('swift_once (0.20%)')" onclick="zoom(this)" class="func_g"><title >swift_once (0.20%)</title> 
+<rect  height="15.0" y="405.0" width="30.256409" fill="rgb(219,228,28)" rx="2" ry="2" x="599.9999"/> 
+<text  font-family="Verdana" x="603.00" y="415.50" font-size="12">sw..</text> 
+</g> 
+<g  onmouseout="c()" onclick="zoom(this)" class="func_g" onmouseover="s('_dispatch_once_callout (0.20%)')"><title >_dispatch_once_callout (0.20%)</title> 
+<rect  rx="2" y="389.0" ry="2" height="15.0" x="599.9999" fill="rgb(235,63,5)" width="30.256409"/> 
+<text  font-family="Verdana" x="603.00" y="399.50" font-size="12">_d..</text> 
+</g> 
+<g  onmouseover="s('_dispatch_client_callout (0.20%)')" onmouseout="c()" onclick="zoom(this)" class="func_g"><title >_dispatch_client_callout (0.20%)</title> 
+<rect  y="373.0" width="30.256409" height="15.0" fill="rgb(234,144,47)" ry="2" rx="2" x="599.9999"/> 
+<text  y="383.50" font-family="Verdana" x="603.00" font-size="12">_d..</text> 
+</g> 
+<g  onmouseout="c()" onmouseover="s('globalinit_33_995479258F626680E9EA3074542DDEA9_func281 (0.20%)')" class="func_g" onclick="zoom(this)"><title >globalinit_33_995479258F626680E9EA3074542DDEA9_func281 (0.20%)</title> 
+<rect  y="357.0" width="30.256409" fill="rgb(218,145,51)" ry="2" height="15.0" x="599.9999" rx="2"/> 
+<text  font-size="12" font-family="Verdana" x="603.00" y="367.50">gl..</text> 
+</g> 
+<g  onmouseover="s('Session.init(configuration:) (0.20%)')" onmouseout="c()" onclick="zoom(this)" class="func_g"><title >Session.init(configuration:) (0.20%)</title> 
+<rect  width="30.256409" rx="2" height="15.0" ry="2" x="599.9999" y="341.0" fill="rgb(206,97,24)"/> 
+<text  font-family="Verdana" font-size="12" x="603.00" y="351.50">Se..</text> 
+</g> 
+<g  class="func_g" onmouseover="s('Session.urlSession.unsafeMutableAddressor (0.20%)')" onmouseout="c()" onclick="zoom(this)"><title >Session.urlSession.unsafeMutableAddressor (0.20%)</title> 
+<rect  fill="rgb(251,230,32)" ry="2" rx="2" width="30.256409" height="15.0" x="599.9999" y="325.0"/> 
+<text  font-size="12" x="603.00" y="335.50" font-family="Verdana">Se..</text> 
+</g> 
+<g  onmouseout="c()" class="func_g" onclick="zoom(this)" onmouseover="s('swift_once (0.20%)')"><title >swift_once (0.20%)</title> 
+<rect  fill="rgb(220,20,18)" y="309.0" rx="2" ry="2" width="30.256409" x="599.9999" height="15.0"/> 
+<text  x="603.00" font-family="Verdana" y="319.50" font-size="12">sw..</text> 
+</g> 
+<g  onclick="zoom(this)" class="func_g" onmouseover="s('_dispatch_once_callout (0.20%)')" onmouseout="c()"><title >_dispatch_once_callout (0.20%)</title> 
+<rect  fill="rgb(213,177,9)" ry="2" x="599.9999" width="30.256409" height="15.0" rx="2" y="293.0"/> 
+<text  x="603.00" y="303.50" font-family="Verdana" font-size="12">_d..</text> 
+</g> 
+<g  onmouseover="s('_dispatch_client_callout (0.20%)')" onmouseout="c()" onclick="zoom(this)" class="func_g"><title >_dispatch_client_callout (0.20%)</title> 
+<rect  height="15.0" x="599.9999" y="277.0" width="30.256409" ry="2" fill="rgb(253,31,29)" rx="2"/> 
+<text  x="603.00" y="287.50" font-family="Verdana" font-size="12">_d..</text> 
+</g> 
+<g  onmouseover="s('globalinit_33_995479258F626680E9EA3074542DDEA9_func279 (0.20%)')" onclick="zoom(this)" onmouseout="c()" class="func_g"><title >globalinit_33_995479258F626680E9EA3074542DDEA9_func279 (0.20%)</title> 
+<rect  width="30.256409" ry="2" fill="rgb(243,204,46)" x="599.9999" rx="2" height="15.0" y="261.0"/> 
+<text  font-size="12" x="603.00" y="271.50" font-family="Verdana">gl..</text> 
+</g> 
+<g  class="func_g" onmouseover="s('closure #1 in variable initialization expression of static Session.urlSession (0.20%)')" onclick="zoom(this)" onmouseout="c()"><title >closure #1 in variable initialization expression of static Session.urlSession (0.20%)</title> 
+<rect  x="599.9999" rx="2" fill="rgb(219,24,21)" ry="2" y="245.0" width="30.256409" height="15.0"/> 
+<text  x="603.00" font-size="12" y="255.50" font-family="Verdana">cl..</text> 
+</g> 
+<g  onmouseover="s('-[SessionSingleton initWithDataStore:] (0.10%)')" class="func_g" onclick="zoom(this)" onmouseout="c()"><title >-[SessionSingleton initWithDataStore:] (0.10%)</title> 
+<rect  x="690.7691" width="15.128174" ry="2" y="549.0" height="15.0" rx="2" fill="rgb(239,44,23)"/> 
+<text  x="693.77" y="559.50" font-size="12" font-family="Verdana"></text> 
+</g> 
+<g  onmouseover="s('-[NSURLCache initWithMemoryCapacity:diskCapacity:diskPath:] (0.10%)')" onclick="zoom(this)" onmouseout="c()" class="func_g"><title >-[NSURLCache initWithMemoryCapacity:diskCapacity:diskPath:] (0.10%)</title> 
+<rect  y="533.0" width="15.128174" height="15.0" fill="rgb(246,22,51)" x="690.7691" rx="2" ry="2"/> 
+<text  y="543.50" font-size="12" x="693.77" font-family="Verdana"></text> 
+</g> 
+<g  onmouseover="s('__CFURLCacheCreateInternal(__CFAllocator const*, long, long, __CFString const*, bool, bool) (0.10%)')" onmouseout="c()" class="func_g" onclick="zoom(this)"><title >__CFURLCacheCreateInternal(__CFAllocator const*, long, long, __CFString const*, bool, bool) (0.10%)</title> 
+<rect  height="15.0" y="517.0" x="690.7691" fill="rgb(207,88,21)" ry="2" width="15.128174" rx="2"/> 
+<text  font-size="12" x="693.77" font-family="Verdana" y="527.50"></text> 
+</g> 
+<g  onclick="zoom(this)" onmouseover="s('@objc NSUserDefaults.wmf_appTheme.getter (0.70%)')" onmouseout="c()" class="func_g"><title >@objc NSUserDefaults.wmf_appTheme.getter (0.70%)</title> 
+<rect  x="721.0255" fill="rgb(239,24,2)" y="661.0" rx="2" ry="2" height="15.0" width="105.8974"/> 
+<text  x="724.03" y="671.50" font-size="12" font-family="Verdana">@objc NSUser..</text> 
+</g> 
+<g  onmouseover="s('NSUserDefaults.wmf_appTheme.getter (0.70%)')" class="func_g" onclick="zoom(this)" onmouseout="c()"><title >NSUserDefaults.wmf_appTheme.getter (0.70%)</title> 
+<rect  fill="rgb(228,107,12)" ry="2" width="105.8974" y="645.0" rx="2" x="721.0255" height="15.0"/> 
+<text  font-family="Verdana" x="724.03" font-size="12" y="655.50">NSUserDefaul..</text> 
+</g> 
+<g  onmouseover="s('Theme.standard.unsafeMutableAddressor (0.70%)')" class="func_g" onmouseout="c()" onclick="zoom(this)"><title >Theme.standard.unsafeMutableAddressor (0.70%)</title> 
+<rect  width="105.8974" ry="2" x="721.0255" height="15.0" rx="2" y="629.0" fill="rgb(255,105,50)"/> 
+<text  x="724.03" font-size="12" y="639.50" font-family="Verdana">Theme.standa..</text> 
+</g> 
+<g  onclick="zoom(this)" onmouseout="c()" class="func_g" onmouseover="s('swift_once (0.70%)')"><title >swift_once (0.70%)</title> 
+<rect  rx="2" height="15.0" ry="2" x="721.0255" y="613.0" fill="rgb(214,158,27)" width="105.8974"/> 
+<text  x="724.03" font-family="Verdana" font-size="12" y="623.50">swift_once</text> 
+</g> 
+<g  class="func_g" onmouseover="s('_dispatch_once_callout (0.70%)')" onmouseout="c()" onclick="zoom(this)"><title >_dispatch_once_callout (0.70%)</title> 
+<rect  rx="2" height="15.0" y="597.0" fill="rgb(249,63,8)" ry="2" x="721.0255" width="105.8974"/> 
+<text  font-family="Verdana" y="607.50" x="724.03" font-size="12">_dispatch_on..</text> 
+</g> 
+<g  onmouseout="c()" class="func_g" onclick="zoom(this)" onmouseover="s('_dispatch_client_callout (0.70%)')"><title >_dispatch_client_callout (0.70%)</title> 
+<rect  height="15.0" rx="2" y="581.0" width="105.8974" fill="rgb(214,94,30)" ry="2" x="721.0255"/> 
+<text  y="591.50" font-family="Verdana" x="724.03" font-size="12">_dispatch_cl..</text> 
+</g> 
+<g  class="func_g" onclick="zoom(this)" onmouseover="s('globalinit_33_4278D53007568830AE2AE3B3F8C2E3E9_func178Tm (0.70%)')" onmouseout="c()"><title >globalinit_33_4278D53007568830AE2AE3B3F8C2E3E9_func178Tm (0.70%)</title> 
+<rect  height="15.0" y="565.0" width="105.8974" fill="rgb(210,210,9)" rx="2" ry="2" x="721.0255"/> 
+<text  x="724.03" y="575.50" font-size="12" font-family="Verdana">globalinit_3..</text> 
+</g> 
+<g  onmouseover="s('swift_once (0.70%)')" onmouseout="c()" onclick="zoom(this)" class="func_g"><title >swift_once (0.70%)</title> 
+<rect  fill="rgb(238,198,51)" ry="2" rx="2" x="721.0255" y="549.0" width="105.8974" height="15.0"/> 
+<text  font-size="12" font-family="Verdana" y="559.50" x="724.03">swift_once</text> 
+</g> 
+<g  class="func_g" onclick="zoom(this)" onmouseover="s('_dispatch_once_callout (0.70%)')" onmouseout="c()"><title >_dispatch_once_callout (0.70%)</title> 
+<rect  x="721.0255" fill="rgb(228,19,26)" y="533.0" ry="2" height="15.0" rx="2" width="105.8974"/> 
+<text  y="543.50" x="724.03" font-family="Verdana" font-size="12">_dispatch_on..</text> 
+</g> 
+<g  onmouseout="c()" onmouseover="s('_dispatch_client_callout (0.70%)')" onclick="zoom(this)" class="func_g"><title >_dispatch_client_callout (0.70%)</title> 
+<rect  x="721.0255" fill="rgb(215,197,52)" rx="2" ry="2" y="517.0" width="105.8974" height="15.0"/> 
+<text  font-size="12" font-family="Verdana" x="724.03" y="527.50">_dispatch_cl..</text> 
+</g> 
+<g  onclick="zoom(this)" onmouseout="c()" onmouseover="s('globalinit_33_4278D53007568830AE2AE3B3F8C2E3E9_func207 (0.70%)')" class="func_g"><title >globalinit_33_4278D53007568830AE2AE3B3F8C2E3E9_func207 (0.70%)</title> 
+<rect  y="501.0" x="721.0255" width="105.8974" height="15.0" fill="rgb(243,31,52)" ry="2" rx="2"/> 
+<text  font-size="12" y="511.50" font-family="Verdana" x="724.03">globalinit_3..</text> 
+</g> 
+<g  onmouseout="c()" onclick="zoom(this)" class="func_g" onmouseover="s('Theme.lightMultiSelectIndicator.unsafeMutableAddressor (0.30%)')"><title >Theme.lightMultiSelectIndicator.unsafeMutableAddressor (0.30%)</title> 
+<rect  width="45.384644" height="15.0" rx="2" ry="2" y="485.0" x="721.0255" fill="rgb(252,123,19)"/> 
+<text  x="724.03" font-family="Verdana" font-size="12" y="495.50">Them..</text> 
+</g> 
+<g  onmouseout="c()" class="func_g" onclick="zoom(this)" onmouseover="s('swift_once (0.30%)')"><title >swift_once (0.30%)</title> 
+<rect  y="469.0" width="45.384644" height="15.0" fill="rgb(255,195,44)" rx="2" x="721.0255" ry="2"/> 
+<text  font-family="Verdana" font-size="12" x="724.03" y="479.50">swif..</text> 
+</g> 
+<g  onclick="zoom(this)" class="func_g" onmouseover="s('_dispatch_once_callout (0.30%)')" onmouseout="c()"><title >_dispatch_once_callout (0.30%)</title> 
+<rect  y="453.0" x="721.0255" ry="2" rx="2" height="15.0" width="45.384644" fill="rgb(217,9,43)"/> 
+<text  x="724.03" y="463.50" font-size="12" font-family="Verdana">_dis..</text> 
+</g> 
+<g  onmouseout="c()" onmouseover="s('_dispatch_client_callout (0.30%)')" class="func_g" onclick="zoom(this)"><title >_dispatch_client_callout (0.30%)</title> 
+<rect  ry="2" y="437.0" width="45.384644" rx="2" height="15.0" x="721.0255" fill="rgb(236,175,19)"/> 
+<text  y="447.50" font-size="12" x="724.03" font-family="Verdana">_dis..</text> 
+</g> 
+<g  class="func_g" onmouseout="c()" onclick="zoom(this)" onmouseover="s('globalinit_33_4278D53007568830AE2AE3B3F8C2E3E9_func202Tm (0.30%)')"><title >globalinit_33_4278D53007568830AE2AE3B3F8C2E3E9_func202Tm (0.30%)</title> 
+<rect  width="45.384644" ry="2" height="15.0" fill="rgb(235,18,42)" x="721.0255" rx="2" y="421.0"/> 
+<text  font-family="Verdana" x="724.03" y="431.50" font-size="12">glob..</text> 
+</g> 
+<g  onmouseover="s('+[UIImageAccessibility imageNamed:inBundle:compatibleWithTraitCollection:] (0.30%)')" onmouseout="c()" class="func_g" onclick="zoom(this)"><title >+[UIImageAccessibility imageNamed:inBundle:compatibleWithTraitCollection:] (0.30%)</title> 
+<rect  y="405.0" x="721.0255" width="45.384644" ry="2" rx="2" height="15.0" fill="rgb(246,162,4)"/> 
+<text  font-family="Verdana" x="724.03" y="415.50" font-size="12">+[UI..</text> 
+</g> 
+<g  onmouseover="s('+[UIImage imageNamed:inBundle:compatibleWithTraitCollection:] (0.30%)')" onclick="zoom(this)" class="func_g" onmouseout="c()"><title >+[UIImage imageNamed:inBundle:compatibleWithTraitCollection:] (0.30%)</title> 
+<rect  height="15.0" x="721.0255" ry="2" y="389.0" width="45.384644" fill="rgb(220,23,20)" rx="2"/> 
+<text  font-size="12" font-family="Verdana" x="724.03" y="399.50">+[UI..</text> 
+</g> 
+<g  onclick="zoom(this)" onmouseover="s('_UIKitGetApplicationAssetManager (0.10%)')" onmouseout="c()" class="func_g"><title >_UIKitGetApplicationAssetManager (0.10%)</title> 
+<rect  width="15.128174" height="15.0" rx="2" ry="2" fill="rgb(230,206,18)" x="721.0255" y="373.0"/> 
+<text  x="724.03" y="383.50" font-size="12" font-family="Verdana"></text> 
+</g> 
+<g  onmouseover="s('_dispatch_once_callout (0.10%)')" onmouseout="c()" class="func_g" onclick="zoom(this)"><title >_dispatch_once_callout (0.10%)</title> 
+<rect  width="15.128174" x="721.0255" fill="rgb(210,38,24)" height="15.0" y="357.0" rx="2" ry="2"/> 
+<text  x="724.03" font-family="Verdana" y="367.50" font-size="12"></text> 
+</g> 
+<g  class="func_g" onclick="zoom(this)" onmouseover="s('_dispatch_client_callout (0.10%)')" onmouseout="c()"><title >_dispatch_client_callout (0.10%)</title> 
+<rect  x="721.0255" y="341.0" fill="rgb(221,172,51)" ry="2" rx="2" height="15.0" width="15.128174"/> 
+<text  y="351.50" font-size="12" font-family="Verdana" x="724.03"></text> 
+</g> 
+<g  onmouseout="c()" onmouseover="s('___UIKitGetApplicationAssetManager_block_invoke (0.10%)')" class="func_g" onclick="zoom(this)"><title >___UIKitGetApplicationAssetManager_block_invoke (0.10%)</title> 
+<rect  x="721.0255" rx="2" ry="2" y="325.0" width="15.128174" height="15.0" fill="rgb(226,30,15)"/> 
+<text  font-family="Verdana" y="335.50" font-size="12" x="724.03"></text> 
+</g> 
+<g  onmouseout="c()" onclick="zoom(this)" class="func_g" onmouseover="s('-[_UIAssetManager initWithName:inBundle:idiom:] (0.10%)')"><title >-[_UIAssetManager initWithName:inBundle:idiom:] (0.10%)</title> 
+<rect  fill="rgb(232,110,23)" y="309.0" x="721.0255" width="15.128174" rx="2" height="15.0" ry="2"/> 
+<text  font-size="12" x="724.03" y="319.50" font-family="Verdana"></text> 
+</g> 
+<g  onclick="zoom(this)" onmouseover="s('-[_UIAssetManager _initWithName:inBundle:idiom:lock:allowMissingCatalog:] (0.10%)')" onmouseout="c()" class="func_g"><title >-[_UIAssetManager _initWithName:inBundle:idiom:lock:allowMissingCatalog:] (0.10%)</title> 
+<rect  height="15.0" rx="2" fill="rgb(228,219,46)" ry="2" y="293.0" x="721.0255" width="15.128174"/> 
+<text  x="724.03" y="303.50" font-size="12" font-family="Verdana"></text> 
+</g> 
+<g  class="func_g" onmouseover="s('-[_UIAssetManager imageNamed:withTrait:] (0.10%)')" onclick="zoom(this)" onmouseout="c()"><title >-[_UIAssetManager imageNamed:withTrait:] (0.10%)</title> 
+<rect  fill="rgb(223,228,27)" height="15.0" y="373.0" width="15.128174" rx="2" x="736.1537" ry="2"/> 
+<text  font-family="Verdana" y="383.50" x="739.15" font-size="12"></text> 
+</g> 
+<g  class="func_g" onmouseout="c()" onmouseover="s('-[_UIAssetManager imageNamed:scale:gamut:layoutDirection:idiom:userInterfaceStyle:subtype:cachingOptions:sizeClassPair:attachCatalogImage:] (0.10%)')" onclick="zoom(this)"><title >-[_UIAssetManager imageNamed:scale:gamut:layoutDirection:idiom:userInterfaceStyle:subtype:cachingOptions:sizeClassPair:attachCatalogImage:] (0.10%)</title> 
+<rect  x="736.1537" y="357.0" ry="2" height="15.0" rx="2" width="15.128174" fill="rgb(244,43,36)"/> 
+<text  x="739.15" font-family="Verdana" font-size="12" y="367.50"></text> 
+</g> 
+<g  onmouseout="c()" class="func_g" onclick="zoom(this)" onmouseover="s('__139-[_UIAssetManager imageNamed:scale:gamut:layoutDirection:idiom:userInterfaceStyle:subtype:cachingOptions:sizeClassPair:attachCatalogImage:]_block_invoke (0.10%)')"><title >__139-[_UIAssetManager imageNamed:scale:gamut:layoutDirection:idiom:userInterfaceStyle:subtype:cachingOptions:sizeClassPair:attachCatalogImage:]_block_invoke (0.10%)</title> 
+<rect  fill="rgb(212,68,16)" x="736.1537" y="341.0" width="15.128174" height="15.0" rx="2" ry="2"/> 
+<text  y="351.50" font-family="Verdana" font-size="12" x="739.15"></text> 
+</g> 
+<g  onmouseover="s('WMFLocalizedStringWithDefaultValue (0.10%)')" onclick="zoom(this)" onmouseout="c()" class="func_g"><title >WMFLocalizedStringWithDefaultValue (0.10%)</title> 
+<rect  fill="rgb(240,89,21)" height="15.0" y="485.0" width="15.128174" rx="2" x="766.41016" ry="2"/> 
+<text  font-family="Verdana" y="495.50" x="769.41" font-size="12"></text> 
+</g> 
+<g  onmouseout="c()" onmouseover="s('-[NSBundleAccessibility localizedStringForKey:value:table:] (0.10%)')" class="func_g" onclick="zoom(this)"><title >-[NSBundleAccessibility localizedStringForKey:value:table:] (0.10%)</title> 
+<rect  rx="2" x="766.41016" ry="2" fill="rgb(223,214,40)" height="15.0" y="469.0" width="15.128174"/> 
+<text  font-size="12" font-family="Verdana" x="769.41" y="479.50"></text> 
+</g> 
+<g  onmouseout="c()" onclick="zoom(this)" class="func_g" onmouseover="s('-[NSBundle localizedStringForKey:value:table:] (0.10%)')"><title >-[NSBundle localizedStringForKey:value:table:] (0.10%)</title> 
+<rect  y="453.0" width="15.128174" rx="2" height="15.0" fill="rgb(239,120,3)" ry="2" x="766.41016"/> 
+<text  x="769.41" font-size="12" font-family="Verdana" y="463.50"></text> 
+</g> 
+<g  class="func_g" onclick="zoom(this)" onmouseover="s('CFBundleCopyLocalizedStringForLocalization (0.10%)')" onmouseout="c()"><title >CFBundleCopyLocalizedStringForLocalization (0.10%)</title> 
+<rect  x="766.41016" width="15.128174" fill="rgb(229,29,25)" height="15.0" ry="2" y="437.0" rx="2"/> 
+<text  x="769.41" font-family="Verdana" y="447.50" font-size="12"></text> 
+</g> 
+<g  onmouseover="s('-[UITabBarController loadView] (0.10%)')" onmouseout="c()" onclick="zoom(this)" class="func_g"><title >-[UITabBarController loadView] (0.10%)</title> 
+<rect  x="887.43585" rx="2" width="15.128235" ry="2" fill="rgb(216,28,0)" y="677.0" height="15.0"/> 
+<text  font-family="Verdana" y="687.50" x="890.44" font-size="12"></text> 
+</g> 
+<g  onmouseout="c()" onmouseover="s('-[UITabBarController _layoutContainerView] (0.10%)')" onclick="zoom(this)" class="func_g"><title >-[UITabBarController _layoutContainerView] (0.10%)</title> 
+<rect  fill="rgb(245,155,30)" height="15.0" y="661.0" width="15.128235" rx="2" x="887.43585" ry="2"/> 
+<text  font-size="12" y="671.50" font-family="Verdana" x="890.44"></text> 
+</g> 
+<g  onmouseover="s('-[UITabBarController _prepareTabBar] (0.10%)')" onclick="zoom(this)" class="func_g" onmouseout="c()"><title >-[UITabBarController _prepareTabBar] (0.10%)</title> 
+<rect  fill="rgb(243,68,38)" height="15.0" x="887.43585" rx="2" y="645.0" ry="2" width="15.128235"/> 
+<text  y="655.50" x="890.44" font-size="12" font-family="Verdana"></text> 
+</g> 
+<g  onmouseout="c()" class="func_g" onclick="zoom(this)" onmouseover="s('-[UIView(Geometry) sizeToFit] (0.10%)')"><title >-[UIView(Geometry) sizeToFit] (0.10%)</title> 
+<rect  height="15.0" width="15.128235" x="887.43585" rx="2" y="629.0" fill="rgb(219,64,1)" ry="2"/> 
+<text  y="639.50" x="890.44" font-family="Verdana" font-size="12"></text> 
+</g> 
+<g  onmouseover="s('-[UITabBar sizeThatFits:] (0.10%)')" onmouseout="c()" class="func_g" onclick="zoom(this)"><title >-[UITabBar sizeThatFits:] (0.10%)</title> 
+<rect  x="887.43585" width="15.128235" fill="rgb(225,200,13)" height="15.0" ry="2" y="613.0" rx="2"/> 
+<text  y="623.50" font-family="Verdana" font-size="12" x="890.44"></text> 
+</g> 
+<g  onmouseout="c()" onclick="zoom(this)" class="func_g" onmouseover="s('-[_UITabBarVisualProviderLegacyIOS intrinsicContentSizeGivenSize:] (0.10%)')"><title >-[_UITabBarVisualProviderLegacyIOS intrinsicContentSizeGivenSize:] (0.10%)</title> 
+<rect  rx="2" height="15.0" ry="2" width="15.128235" y="597.0" fill="rgb(235,193,42)" x="887.43585"/> 
+<text  y="607.50" x="890.44" font-family="Verdana" font-size="12"></text> 
+</g> 
+<g  onmouseout="c()" onmouseover="s('_UIBackgroundExtensionForBar (0.10%)')" class="func_g" onclick="zoom(this)"><title >_UIBackgroundExtensionForBar (0.10%)</title> 
+<rect  y="581.0" rx="2" height="15.0" width="15.128235" x="887.43585" ry="2" fill="rgb(238,180,50)"/> 
+<text  font-family="Verdana" font-size="12" y="591.50" x="890.44"></text> 
+</g> 
+<g  onmouseover="s('_UIBackgroundExtensionForBarWithMaxY (0.10%)')" class="func_g" onmouseout="c()" onclick="zoom(this)"><title >_UIBackgroundExtensionForBarWithMaxY (0.10%)</title> 
+<rect  ry="2" fill="rgb(211,24,44)" x="887.43585" height="15.0" y="565.0" rx="2" width="15.128235"/> 
+<text  x="890.44" y="575.50" font-family="Verdana" font-size="12"></text> 
+</g> 
+<g  onmouseout="c()" class="func_g" onclick="zoom(this)" onmouseover="s('-[UIScreen _displayEdgeInfoProvider] (0.10%)')"><title >-[UIScreen _displayEdgeInfoProvider] (0.10%)</title> 
+<rect  fill="rgb(206,183,55)" ry="2" x="887.43585" y="549.0" width="15.128235" rx="2" height="15.0"/> 
+<text  x="890.44" font-size="12" font-family="Verdana" y="559.50"></text> 
+</g> 
+<g  onmouseover="s('-[UISApplicationSupportClient edgeInfoForDisplayConfiguration:] (0.10%)')" onmouseout="c()" class="func_g" onclick="zoom(this)"><title >-[UISApplicationSupportClient edgeInfoForDisplayConfiguration:] (0.10%)</title> 
+<rect  height="15.0" fill="rgb(224,6,8)" ry="2" x="887.43585" width="15.128235" y="533.0" rx="2"/> 
+<text  y="543.50" font-size="12" font-family="Verdana" x="890.44"></text> 
+</g> 
+<g  onmouseover="s('-[WMFAppViewController launchAppInWindow:waitToResumeApp:] (1.20%)')" onclick="zoom(this)" class="func_g" onmouseout="c()"><title >-[WMFAppViewController launchAppInWindow:waitToResumeApp:] (1.20%)</title> 
+<rect  rx="2" fill="rgb(207,159,2)" x="917.69226" height="15.0" y="693.0" ry="2" width="181.53845"/> 
+<text  x="920.69" font-size="12" y="703.50" font-family="Verdana">-[WMFAppViewController ..</text> 
+</g> 
+<g  onmouseover="s('-[WMFAppViewController migrateIfNecessary] (0.40%)')" onmouseout="c()" onclick="zoom(this)" class="func_g"><title >-[WMFAppViewController migrateIfNecessary] (0.40%)</title> 
+<rect  x="917.69226" rx="2" width="60.512817" ry="2" fill="rgb(211,171,2)" y="677.0" height="15.0"/> 
+<text  x="920.69" font-family="Verdana" y="687.50" font-size="12">-[WMFA..</text> 
+</g> 
+<g  onmouseout="c()" onmouseover="s('-[WMFAppViewController startMigrationBackgroundTask:] (0.40%)')" class="func_g" onclick="zoom(this)"><title >-[WMFAppViewController startMigrationBackgroundTask:] (0.40%)</title> 
+<rect  ry="2" fill="rgb(212,98,28)" height="15.0" x="917.69226" width="60.512817" y="661.0" rx="2"/> 
+<text  y="671.50" font-size="12" font-family="Verdana" x="920.69">-[WMFA..</text> 
+</g> 
+<g  onmouseout="c()" class="func_g" onclick="zoom(this)" onmouseover="s('-[UIApplication __beginBackgroundTaskWithExpirationHandler:] (0.40%)')"><title >-[UIApplication __beginBackgroundTaskWithExpirationHandler:] (0.40%)</title> 
+<rect  x="917.69226" y="645.0" width="60.512817" height="15.0" ry="2" fill="rgb(205,181,30)" rx="2"/> 
+<text  font-size="12" font-family="Verdana" y="655.50" x="920.69">-[UIAp..</text> 
+</g> 
+<g  onmouseover="s('dladdr (0.40%)')" onclick="zoom(this)" onmouseout="c()" class="func_g"><title >dladdr (0.40%)</title> 
+<rect  rx="2" ry="2" x="917.69226" y="629.0" fill="rgb(229,8,35)" width="60.512817" height="15.0"/> 
+<text  font-family="Verdana" font-size="12" x="920.69" y="639.50">dladdr</text> 
+</g> 
+<g  onmouseover="s('0x10556c670 (0.40%)')" onclick="zoom(this)" class="func_g" onmouseout="c()"><title >0x10556c670 (0.40%)</title> 
+<rect  rx="2" height="15.0" ry="2" x="917.69226" y="613.0" width="60.512817" fill="rgb(229,213,28)"/> 
+<text  font-size="12" font-family="Verdana" x="920.69" y="623.50">0x1055..</text> 
+</g> 
+<g  class="func_g" onmouseover="s('0x105576756 (0.40%)')" onmouseout="c()" onclick="zoom(this)"><title >0x105576756 (0.40%)</title> 
+<rect  y="597.0" width="60.512817" height="15.0" ry="2" x="917.69226" rx="2" fill="rgb(242,139,37)"/> 
+<text  y="607.50" x="920.69" font-family="Verdana" font-size="12">0x1055..</text> 
+</g> 
+<g  onmouseout="c()" class="func_g" onclick="zoom(this)" onmouseover="s('-[UINavigationController initWithRootViewController:] (0.40%)')"><title >-[UINavigationController initWithRootViewController:] (0.40%)</title> 
+<rect  rx="2" ry="2" x="978.2051" y="677.0" fill="rgb(222,96,35)" width="60.512817" height="15.0"/> 
+<text  font-size="12" font-family="Verdana" y="687.50" x="981.21">-[UINa..</text> 
+</g> 
+<g  onmouseover="s('-[UINavigationController pushViewController:animated:] (0.40%)')" onclick="zoom(this)" onmouseout="c()" class="func_g"><title >-[UINavigationController pushViewController:animated:] (0.40%)</title> 
+<rect  rx="2" height="15.0" ry="2" x="978.2051" y="661.0" width="60.512817" fill="rgb(251,216,46)"/> 
+<text  font-family="Verdana" font-size="12" x="981.21" y="671.50">-[UINa..</text> 
+</g> 
+<g  onmouseover="s('-[UINavigationController pushViewController:transition:forceImmediate:] (0.40%)')" onclick="zoom(this)" class="func_g" onmouseout="c()"><title >-[UINavigationController pushViewController:transition:forceImmediate:] (0.40%)</title> 
+<rect  y="645.0" width="60.512817" height="15.0" ry="2" x="978.2051" rx="2" fill="rgb(236,201,28)"/> 
+<text  font-size="12" font-family="Verdana" x="981.21" y="655.50">-[UINa..</text> 
+</g> 
+<g  onmouseover="s('-[UIViewController view] (0.20%)')" class="func_g" onclick="zoom(this)" onmouseout="c()"><title >-[UIViewController view] (0.20%)</title> 
+<rect  width="30.256409" rx="2" ry="2" height="15.0" fill="rgb(221,29,36)" y="629.0" x="978.2051"/> 
+<text  y="639.50" x="981.21" font-family="Verdana" font-size="12">-[..</text> 
+</g> 
+<g  onclick="zoom(this)" onmouseover="s('-[UIViewController loadViewIfRequired] (0.20%)')" class="func_g" onmouseout="c()"><title >-[UIViewController loadViewIfRequired] (0.20%)</title> 
+<rect  fill="rgb(233,93,25)" x="978.2051" ry="2" y="613.0" width="30.256409" height="15.0" rx="2"/> 
+<text  y="623.50" font-family="Verdana" font-size="12" x="981.21">-[..</text> 
+</g> 
+<g  onmouseout="c()" class="func_g" onclick="zoom(this)" onmouseover="s('-[UINavigationController loadView] (0.20%)')"><title >-[UINavigationController loadView] (0.20%)</title> 
+<rect  y="597.0" fill="rgb(205,34,17)" width="30.256409" x="978.2051" height="15.0" rx="2" ry="2"/> 
+<text  font-size="12" x="981.21" font-family="Verdana" y="607.50">-[..</text> 
+</g> 
+<g  onmouseout="c()" onmouseover="s('-[UINavigationController _navigationBarHiddenByDefault:] (0.20%)')" onclick="zoom(this)" class="func_g"><title >-[UINavigationController _navigationBarHiddenByDefault:] (0.20%)</title> 
+<rect  rx="2" height="15.0" y="581.0" x="978.2051" fill="rgb(246,34,21)" ry="2" width="30.256409"/> 
+<text  font-size="12" font-family="Verdana" x="981.21" y="591.50">-[..</text> 
+</g> 
+<g  onmouseover="s('-[UINavigationController setNavigationBar:] (0.10%)')" onmouseout="c()" onclick="zoom(this)" class="func_g"><title >-[UINavigationController setNavigationBar:] (0.10%)</title> 
+<rect  rx="2" x="978.2051" y="565.0" width="15.128174" fill="rgb(231,200,3)" height="15.0" ry="2"/> 
+<text  font-size="12" y="575.50" font-family="Verdana" x="981.21"></text> 
+</g> 
+<g  class="func_g" onclick="zoom(this)" onmouseover="s('-[UINavigationController _positionNavigationBarHidden:edge:] (0.10%)')" onmouseout="c()"><title >-[UINavigationController _positionNavigationBarHidden:edge:] (0.10%)</title> 
+<rect  y="549.0" ry="2" height="15.0" fill="rgb(238,214,12)" x="978.2051" rx="2" width="15.128174"/> 
+<text  font-family="Verdana" font-size="12" y="559.50" x="981.21"></text> 
+</g> 
+<g  onclick="zoom(this)" class="func_g" onmouseout="c()" onmouseover="s('-[UINavigationController _positionNavigationBarHidden:edge:initialOffset:] (0.10%)')"><title >-[UINavigationController _positionNavigationBarHidden:edge:initialOffset:] (0.10%)</title> 
+<rect  fill="rgb(253,159,11)" height="15.0" width="15.128174" x="978.2051" rx="2" ry="2" y="533.0"/> 
+<text  y="543.50" font-size="12" x="981.21" font-family="Verdana"></text> 
+</g> 
+<g  class="func_g" onmouseout="c()" onclick="zoom(this)" onmouseover="s('-[UIView(Hierarchy) layoutBelowIfNeeded] (0.10%)')"><title >-[UIView(Hierarchy) layoutBelowIfNeeded] (0.10%)</title> 
+<rect  rx="2" width="15.128174" height="15.0" ry="2" fill="rgb(220,230,45)" y="517.0" x="978.2051"/> 
+<text  font-family="Verdana" x="981.21" font-size="12" y="527.50"></text> 
+</g> 
+<g  class="func_g" onmouseover="s('CA::Layer::layout_if_needed(CA::Transaction*) (0.10%)')" onmouseout="c()" onclick="zoom(this)"><title >CA::Layer::layout_if_needed(CA::Transaction*) (0.10%)</title> 
+<rect  rx="2" width="15.128174" ry="2" fill="rgb(246,9,24)" y="501.0" height="15.0" x="978.2051"/> 
+<text  x="981.21" font-family="Verdana" font-size="12" y="511.50"></text> 
+</g> 
+<g  onclick="zoom(this)" onmouseout="c()" onmouseover="s('-[CALayer layoutSublayers] (0.10%)')" class="func_g"><title >-[CALayer layoutSublayers] (0.10%)</title> 
+<rect  x="978.2051" width="15.128174" height="15.0" ry="2" y="485.0" rx="2" fill="rgb(217,38,41)"/> 
+<text  x="981.21" y="495.50" font-family="Verdana" font-size="12"></text> 
+</g> 
+<g  onmouseout="c()" class="func_g" onclick="zoom(this)" onmouseover="s('-[UIWindow setRootViewController:] (0.10%)')"><title >-[UIWindow setRootViewController:] (0.10%)</title> 
+<rect  rx="2" ry="2" x="1038.7179" y="677.0" fill="rgb(248,129,48)" width="15.128174" height="15.0"/> 
+<text  font-size="12" font-family="Verdana" y="687.50" x="1041.72"></text> 
+</g> 
+<g  onmouseout="c()" class="func_g" onclick="zoom(this)" onmouseover="s('-[UIWindow makeKeyAndVisible] (0.10%)')"><title >-[UIWindow makeKeyAndVisible] (0.10%)</title> 
+<rect  rx="2" ry="2" x="1053.8461" y="677.0" fill="rgb(242,158,1)" width="15.128174" height="15.0"/> 
+<text  font-size="12" font-family="Verdana" y="687.50" x="1056.85"></text> 
+</g> 
+<g  onmouseover="s('-[UIWindowAccessibility _orderFrontWithoutMakingKey] (0.10%)')" onclick="zoom(this)" onmouseout="c()" class="func_g"><title >-[UIWindowAccessibility _orderFrontWithoutMakingKey] (0.10%)</title> 
+<rect  rx="2" height="15.0" ry="2" x="1053.8461" y="661.0" width="15.128174" fill="rgb(227,124,49)"/> 
+<text  font-family="Verdana" font-size="12" x="1056.85" y="671.50"></text> 
+</g> 
+<g  onmouseover="s('-[UIWindow _setHidden:forced:] (0.10%)')" onclick="zoom(this)" class="func_g" onmouseout="c()"><title >-[UIWindow _setHidden:forced:] (0.10%)</title> 
+<rect  y="645.0" width="15.128174" height="15.0" ry="2" x="1053.8461" rx="2" fill="rgb(247,65,33)"/> 
+<text  font-size="12" font-family="Verdana" x="1056.85" y="655.50"></text> 
+</g> 
+<g  onmouseout="c()" class="func_g" onclick="zoom(this)" onmouseover="s('@objc static NSUserDefaults.wmf_migrateToWMFGroupUserDefaultsIfNecessary() (0.30%)')"><title >@objc static NSUserDefaults.wmf_migrateToWMFGroupUserDefaultsIfNecessary() (0.30%)</title> 
+<rect  rx="2" ry="2" x="1099.2307" y="693.0" fill="rgb(223,73,50)" width="45.384644" height="15.0"/> 
+<text  font-size="12" font-family="Verdana" y="703.50" x="1102.23">@obj..</text> 
+</g> 
+<g  onmouseover="s('static NSUserDefaults.wmf_migrateToWMFGroupUserDefaultsIfNecessary() (0.30%)')" onclick="zoom(this)" onmouseout="c()" class="func_g"><title >static NSUserDefaults.wmf_migrateToWMFGroupUserDefaultsIfNecessary() (0.30%)</title> 
+<rect  rx="2" height="15.0" ry="2" x="1099.2307" y="677.0" width="45.384644" fill="rgb(217,129,17)"/> 
+<text  font-family="Verdana" font-size="12" x="1102.23" y="687.50">stat..</text> 
+</g> 
+<g  onmouseover="s('specialized static NSUserDefaults.wmf_migrateToWMFGroupUserDefaultsIfNecessary() (0.20%)')" onclick="zoom(this)" class="func_g" onmouseout="c()"><title >specialized static NSUserDefaults.wmf_migrateToWMFGroupUserDefaultsIfNecessary() (0.20%)</title> 
+<rect  y="661.0" width="30.256348" height="15.0" ry="2" x="1099.2307" rx="2" fill="rgb(234,152,42)"/> 
+<text  font-size="12" font-family="Verdana" x="1102.23" y="671.50">sp..</text> 
+</g> 
+<g  onmouseout="c()" onmouseover="s('static Dictionary._unconditionallyBridgeFromObjectiveC(_:) (0.10%)')" onclick="zoom(this)" class="func_g"><title >static Dictionary._unconditionallyBridgeFromObjectiveC(_:) (0.10%)</title> 
+<rect  width="15.128174" rx="2" ry="2" height="15.0" fill="rgb(246,229,24)" y="645.0" x="1099.2307"/> 
+<text  y="655.50" x="1102.23" font-size="12" font-family="Verdana"></text> 
+</g> 
+<g  onmouseover="s('static Dictionary._forceBridgeFromObjectiveC(_:result:) (0.10%)')" class="func_g" onclick="zoom(this)" onmouseout="c()"><title >static Dictionary._forceBridgeFromObjectiveC(_:result:) (0.10%)</title> 
+<rect  fill="rgb(208,83,1)" x="1099.2307" ry="2" y="629.0" width="15.128174" height="15.0" rx="2"/> 
+<text  font-family="Verdana" x="1102.23" y="639.50" font-size="12"></text> 
+</g> 
+<g  onmouseout="c()" class="func_g" onclick="zoom(this)" onmouseover="s('-[AppDelegate updateDynamicIconShortcutItems] (0.10%)')"><title >-[AppDelegate updateDynamicIconShortcutItems] (0.10%)</title> 
+<rect  rx="2" ry="2" x="1144.6154" y="693.0" fill="rgb(245,189,7)" width="15.128174" height="15.0"/> 
+<text  font-size="12" font-family="Verdana" y="703.50" x="1147.62"></text> 
+</g> 
+<g  onmouseover="s('-[UIApplication setShortcutItems:] (0.10%)')" class="func_g" onmouseout="c()" onclick="zoom(this)"><title >-[UIApplication setShortcutItems:] (0.10%)</title> 
+<rect  x="1144.6154" height="15.0" width="15.128174" y="677.0" fill="rgb(241,138,9)" rx="2" ry="2"/> 
+<text  y="687.50" font-size="12" font-family="Verdana" x="1147.62"></text> 
+</g> 
+
+ </svg>
