@@ -4,11 +4,19 @@ FlameGraphs-Instruments是一个基于Xcode Instruments traces文件生成可交
 
 调研了两个火焰图实现的源码。
 
-###[FlameGraph](https://github.com/brendangregg/FlameGraph)
+
+###FlameGraph
+
+https://github.com/brendangregg/FlameGraph
+
 《性能之巅》的作者， Brendan Gregg 提出的[Flame Graphs](https://www.brendangregg.com/flamegraphs.html) 使用可交互的svg格式。
 缺点是 stackcollapse-instruments.pl 已经多年没有更新，最新traces格式已无法解析。
 
-###[FlameGraph-Swift](https://github.com/lennet/FlameGraph)
+
+###FlameGraph-Swift
+
+https://github.com/lennet/FlameGraph
+
 使用Swift实现，主要功能解析csv格式数据，并生成png、jpg、pdf、html格式火焰图，简单易用，缺点是生成的格式无法交互并查看更深层的堆栈，堆栈层级过高文字展示不全。
 
 
@@ -17,6 +25,10 @@ FlameGraphs-Instruments是一个基于Xcode Instruments traces文件生成可交
 2. 输出可交互svg格式，支持点击，层级查看
 3. 支持解析`CPU Profiler`、 `Time Profiler`
 4. 过滤Weight占比0.0%堆栈
+
+
+[![图例](https://github.com/Kelvenbit/FlameGraphs-Instruments/blob/main/example/output.svg)](https://github.com/Kelvenbit/FlameGraphs-Instruments/blob/main/example/output.svg)
+
 
 
 ## 安装
