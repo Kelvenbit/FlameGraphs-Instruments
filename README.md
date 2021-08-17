@@ -20,7 +20,7 @@ FlameGraphs-Instruments是一个基于Xcode Instruments traces文件生成可交
 使用Swift实现，主要功能解析csv格式数据，并生成png、jpg、pdf、html格式火焰图，简单易用，缺点是生成的格式无法交互并查看更深层的堆栈，堆栈层级过高文字展示不全。
 
 
-融合以上两个项目的优点，FlameGraphs-SVG做了以下优化
+融合以上两个项目的优点，FlameGraphs-Instruments做了以下优化
 1. 支持Instruments traces解析，最高可支持Instruments版本 13.0 beta
 2. 输出可交互svg格式，支持点击，层级查看
 3. 支持解析`CPU Profiler`、 `Time Profiler`
