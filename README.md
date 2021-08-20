@@ -1,5 +1,8 @@
 # FlameGraphs-Instruments
 
+[![Build Status][build-button]][build]
+
+
 FlameGraphs-Instruments是一个基于Xcode Instruments traces文件生成可交互svg火焰图的命令行工具
 
 调研了两个火焰图实现的源码。
