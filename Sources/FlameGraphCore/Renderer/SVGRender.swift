@@ -15,7 +15,7 @@ public class SVGRender: Renderer {
         //package  title、details、buttons
         svg += filledRectangle(x1: 0, y1: 0, x2: Float(imagewidth), y2: Float(imageheight), fill: "url(#background)").text
         svg += stringTTF(id: "title", x: Float(imagewidth/2), y: Float(fontsize*2), str: titletext,anchor: "middle")
-        svg += stringTTF(id: "details", x: Float(xpad), y: Float(imageheight)-Float((ypad2 / 2)), str: " ")
+        svg += stringTTF(id: "details", x: Float(xpad), y: Float(imageheight)-Float(ypad2), str: " ")
         
         svg += stringTTF(id: "unzoom", x: Float(xpad), y: Float(fontsize*2), str: "Reset Zoom", extra: ["onclick":"unzoom()","style":"opacity:0.0;cursor:pointer"])
         
@@ -71,7 +71,7 @@ public class SVGRender: Renderer {
             
             let x1 = node.startX(uw:widthpertime)
             let x2 = x1 + width
-            let y1 = Float(imageheight - ypad2 - (node.symbol.depthLevel + 1) * frameheight + framepad)
+            let y1 = Float(imageheight - (ypad2*2) - (node.symbol.depthLevel + 1) * frameheight + framepad)
             let y2 = y1 + Float(frameheight) - 1
             node.x = x1
             node.width = width
@@ -167,7 +167,7 @@ extension String: RenderTarget {
 
 let fonttype = "Verdana";
 let imagewidth = 1200;          // max width, pixels
-var imageheight = 680;
+var imageheight = 700;
 let frameheight = 16;           // max height is dynamic
 let fontsize = 12;              // base text size
 let titlesize = fontsize + 5;   //
