@@ -22,10 +22,10 @@ FlameGraphs-Instruments是一个基于Xcode Instruments traces文件生成可交
 
 
 融合以上两个项目的优点，FlameGraphs-Instruments做了以下优化
-1. 支持Instruments traces解析，最高可支持Instruments版本 13.0 beta
-2. 输出可交互svg格式，支持点击，层级查看
-3. 支持解析`CPU Profiler`、 `Time Profiler`
-4. 过滤Weight占比0.0%堆栈
+1. 支持Instruments traces解析.
+2. 输出可交互svg格式，支持点击，层级查看.
+3. 支持解析`CPU Profiler`、 `Time Profiler`.
+4. 过滤Weight占比0.0%堆栈.
 
 
 [![图例](https://github.com/Kelvenbit/FlameGraphs-Instruments/blob/main/example/output.svg)](https://github.com/Kelvenbit/FlameGraphs-Instruments/blob/main/example/output.svg)
