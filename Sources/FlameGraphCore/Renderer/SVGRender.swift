@@ -47,8 +47,8 @@ public class SVGRender: Renderer {
         
         for node in nodes {
             
-            let name = formatText(text: node.symbol.name)
-            let title_str = "\(name) (\(String(format:"%.2f",node.symbol.percentage))%)"
+            let name = node.symbol.name
+            let title_str = "\(formatText(text: name)) (\(String(format:"%.2f",node.symbol.percentage))%)"
 
             //<title>
             let title = Element(name: "title", content: title_str)
@@ -94,6 +94,8 @@ public class SVGRender: Renderer {
                 
                 short_name.replaceSubrange(start..<name.endIndex, with: "..")
             }
+            
+            short_name = formatText(text: short_name)
             
             let text = Element(name: "text", content: short_name, attrs:text_attr)
 
